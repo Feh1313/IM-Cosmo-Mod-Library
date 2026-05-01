@@ -1361,6 +1361,27 @@ namespace IMDataCore
     }
 
     /// <summary>
+    /// Captures internal dialogue-chain jumps that bypass `Substories_Manager.StartDialogue`.
+    /// </summary>
+    [HarmonyPatch(typeof(ActiveDialogueController), CoreConstants.HarmonyActiveDialogueInstantTransitionMethodName)]
+    internal static class ActiveDialogueController_DoIntstantTransition_IMDataCoreCapture_Patch
+    {
+        [HarmonyPrefix]
+        [HarmonyPriority(Priority.Last)]
+        private static void Prefix(ActiveDialogueController __instance, out SubstoryInstantTransitionSnapshot __state)
+        {
+            __state = IMDataCoreController.Instance.CreateSubstoryInstantTransitionSnapshot(__instance);
+        }
+
+        [HarmonyPostfix]
+        [HarmonyPriority(Priority.Last)]
+        private static void Postfix(ActiveDialogueController __instance, SubstoryInstantTransitionSnapshot __state)
+        {
+            IMDataCoreController.Instance.CaptureSubstoryInstantTransition(__instance, __state);
+        }
+    }
+
+    /// <summary>
     /// Captures weekly passive economy expense ticks.
     /// </summary>
     [HarmonyPatch(typeof(resources), CoreConstants.HarmonyResourcesOnNewWeekMethodName)]

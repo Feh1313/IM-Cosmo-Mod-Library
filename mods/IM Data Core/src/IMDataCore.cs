@@ -398,6 +398,7 @@ namespace IMDataCore
         internal const string EventSourceEventManagerStartEventPatch = "patch.Event_Manager.StartEvent.Postfix";
         internal const string EventSourceEventManagerConcludeEventPatch = "patch.Event_Manager.ConcludeEvent.Postfix";
         internal const string EventSourceSubstoriesStartDialoguePatch = "patch.Substories_Manager.StartDialogue.Postfix";
+        internal const string EventSourceActiveDialogueInstantTransitionPatch = "patch.ActiveDialogueController.DoIntstantTransition.Postfix";
         internal const string EventSourceResourcesOnNewWeekPatch = "patch.resources.OnNewWeek.Postfix";
         internal const string EventSourceResourcesOnNewDayPatch = "patch.resources.OnNewDay.Postfix";
         internal const string EventSourceDateInfluenceAddBlackmailPatch = "patch.Date_Influence.AddBlackmail.Postfix";
@@ -949,6 +950,7 @@ namespace IMDataCore
         internal const string HarmonyAuditionsGenerateMethodName = "GenerateAudition";
         internal const string HarmonyAuditionsResetCooldownMethodName = "ResetCooldown";
         internal const string HarmonySubstoriesStartDialogueMethodName = "StartDialogue";
+        internal const string HarmonyActiveDialogueInstantTransitionMethodName = "DoIntstantTransition";
         internal const string HarmonyResourcesOnNewWeekMethodName = "OnNewWeek";
         internal const string HarmonyResourcesOnNewDayMethodName = "OnNewDay";
         internal const string HarmonyDateInfluenceBlackmailTriggerMethodName = "Blackmail_Trigger";
@@ -11060,6 +11062,21 @@ namespace IMDataCore
         internal string ParentDialogueId = string.Empty;
         internal string DialogueTypeCode = string.Empty;
         internal bool ShouldEmit;
+    }
+
+    /// <summary>
+    /// Snapshot captured before one active-dialogue instant transition swaps to another dialogue id.
+    /// </summary>
+    internal sealed class SubstoryInstantTransitionSnapshot
+    {
+        internal string SourceDialogueId = string.Empty;
+        internal string SourceParentDialogueId = string.Empty;
+        internal string SourceDialogueTypeCode = string.Empty;
+        internal bool SourceShouldEmit;
+        internal string RequestedTargetDialogueId = string.Empty;
+        internal bool TargetWasUsedBefore;
+        internal int QueueCountBefore;
+        internal int DelayedCountBefore;
     }
 
     /// <summary>

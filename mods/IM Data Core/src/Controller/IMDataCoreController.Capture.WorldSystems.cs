@@ -4742,6 +4742,52 @@ namespace IMDataCore
         }
 
         /// <summary>
+        /// Captures current dialogue state before one internal instant transition swaps to another dialogue id.
+        /// </summary>
+        internal SubstoryInstantTransitionSnapshot CreateSubstoryInstantTransitionSnapshot(ActiveDialogueController dialogueController)
+        {
+            SubstoryInstantTransitionSnapshot snapshot = new SubstoryInstantTransitionSnapshot();
+            if (dialogueController == null)
+            {
+                return snapshot;
+            }
+
+            data_dialogues._dialogue sourceDialogue = dialogueController.dialogue;
+            if (sourceDialogue != null)
+            {
+                snapshot.SourceDialogueId = sourceDialogue.id ?? string.Empty;
+                snapshot.SourceParentDialogueId = sourceDialogue.parent ?? string.Empty;
+                snapshot.SourceDialogueTypeCode = ResolveSubstoryTypeCode(sourceDialogue);
+            }
+
+            snapshot.RequestedTargetDialogueId = dialogueController.InstantTransition ?? string.Empty;
+            snapshot.TargetWasUsedBefore =
+                !string.IsNullOrEmpty(snapshot.RequestedTargetDialogueId)
+                && Substories_Manager.IsUsed(snapshot.RequestedTargetDialogueId);
+            snapshot.QueueCountBefore = Substories_Manager.dialogueQueue != null
+                ? Substories_Manager.dialogueQueue.Count
+                : CoreConstants.ZeroBasedListStartIndex;
+            snapshot.DelayedCountBefore = Substories_Manager.Delayed_Queue != null
+                ? Substories_Manager.Delayed_Queue.Count
+                : CoreConstants.ZeroBasedListStartIndex;
+
+            if (string.IsNullOrEmpty(snapshot.SourceDialogueId))
+            {
+                return snapshot;
+            }
+
+            lock (runtimeLock)
+            {
+                int pendingCount;
+                snapshot.SourceShouldEmit =
+                    pendingSubstoryCompletionCountByDialogueId.TryGetValue(snapshot.SourceDialogueId, out pendingCount)
+                    && pendingCount > CoreConstants.ZeroBasedListStartIndex;
+            }
+
+            return snapshot;
+        }
+
+        /// <summary>
         /// Captures substory completion once active dialogue is closed.
         /// </summary>
         internal void CaptureSubstoryCompleted(SubstoryCompletionSnapshot snapshotBefore)
@@ -4765,33 +4811,175 @@ namespace IMDataCore
                     return;
                 }
 
-                SubstoryLifecycleEventPayload payload = new SubstoryLifecycleEventPayload
-                {
-                    substory_id = snapshotBefore.DialogueId,
-                    substory_parent_id = snapshotBefore.ParentDialogueId,
-                    substory_type = snapshotBefore.DialogueTypeCode,
-                    substory_lifecycle_action = CoreConstants.SubstoryLifecycleActionCompleted,
-                    used_before = Substories_Manager.IsUsed(snapshotBefore.DialogueId),
-                    used_after = Substories_Manager.IsUsed(snapshotBefore.DialogueId),
-                    queue_count_before = Substories_Manager.dialogueQueue != null ? Substories_Manager.dialogueQueue.Count : CoreConstants.ZeroBasedListStartIndex,
-                    queue_count_after = Substories_Manager.dialogueQueue != null ? Substories_Manager.dialogueQueue.Count : CoreConstants.ZeroBasedListStartIndex,
-                    delayed_queue_count_before = Substories_Manager.Delayed_Queue != null ? Substories_Manager.Delayed_Queue.Count : CoreConstants.ZeroBasedListStartIndex,
-                    delayed_queue_count_after = Substories_Manager.Delayed_Queue != null ? Substories_Manager.Delayed_Queue.Count : CoreConstants.ZeroBasedListStartIndex,
-                    scheduled_launch_time = string.Empty,
-                    event_date = CoreDateTimeUtility.ToRoundTripString(staticVars.dateTime)
-                };
-
-                EnqueueEventRecordLocked(
-                    staticVars.dateTime,
-                    CoreConstants.InvalidIdValue,
-                    CoreConstants.EventEntityKindSubstory,
-                    payload.substory_id,
+                SubstoryLifecycleEventPayload payload = BuildSubstoryLifecyclePayload(
+                    snapshotBefore.DialogueId,
+                    snapshotBefore.ParentDialogueId,
+                    snapshotBefore.DialogueTypeCode,
+                    CoreConstants.SubstoryLifecycleActionCompleted,
+                    Substories_Manager.IsUsed(snapshotBefore.DialogueId),
+                    Substories_Manager.IsUsed(snapshotBefore.DialogueId),
+                    Substories_Manager.dialogueQueue != null ? Substories_Manager.dialogueQueue.Count : CoreConstants.ZeroBasedListStartIndex,
+                    Substories_Manager.dialogueQueue != null ? Substories_Manager.dialogueQueue.Count : CoreConstants.ZeroBasedListStartIndex,
+                    Substories_Manager.Delayed_Queue != null ? Substories_Manager.Delayed_Queue.Count : CoreConstants.ZeroBasedListStartIndex,
+                    Substories_Manager.Delayed_Queue != null ? Substories_Manager.Delayed_Queue.Count : CoreConstants.ZeroBasedListStartIndex,
+                    string.Empty,
+                    false,
+                    false);
+                EnqueueSubstoryLifecycleEventLocked(
+                    payload,
                     CoreConstants.EventTypeSubstoryCompleted,
-                    CoreConstants.EventSourceSubstoriesStartDialoguePatch,
-                    CoreJsonUtility.SerializeObjectPayload(payload));
+                    CoreConstants.EventSourceSubstoriesStartDialoguePatch);
 
                 FlushAfterCaptureLocked();
             }
+        }
+
+        /// <summary>
+        /// Captures one internal dialogue-to-dialogue transition that bypasses `StartDialogue`.
+        /// </summary>
+        internal void CaptureSubstoryInstantTransition(ActiveDialogueController dialogueController, SubstoryInstantTransitionSnapshot snapshotBefore)
+        {
+            if (dialogueController == null
+                || snapshotBefore == null
+                || string.IsNullOrEmpty(snapshotBefore.SourceDialogueId)
+                || string.IsNullOrEmpty(snapshotBefore.RequestedTargetDialogueId))
+            {
+                return;
+            }
+
+            data_dialogues._dialogue targetDialogue = dialogueController.dialogue;
+            if (targetDialogue == null || string.IsNullOrEmpty(targetDialogue.id))
+            {
+                return;
+            }
+
+            if (!string.Equals(targetDialogue.id, snapshotBefore.RequestedTargetDialogueId, StringComparison.Ordinal)
+                || string.Equals(targetDialogue.id, snapshotBefore.SourceDialogueId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            int queueCountAfter = Substories_Manager.dialogueQueue != null
+                ? Substories_Manager.dialogueQueue.Count
+                : CoreConstants.ZeroBasedListStartIndex;
+            int delayedCountAfter = Substories_Manager.Delayed_Queue != null
+                ? Substories_Manager.Delayed_Queue.Count
+                : CoreConstants.ZeroBasedListStartIndex;
+            bool targetUsedAfter = Substories_Manager.IsUsed(targetDialogue.id);
+
+            lock (runtimeLock)
+            {
+                string errorMessage;
+                if (!EnsureInitializedLocked(out errorMessage))
+                {
+                    CoreLog.Warn(errorMessage);
+                    return;
+                }
+
+                if (snapshotBefore.SourceShouldEmit && TryConsumeSubstoryCompletionLocked(snapshotBefore.SourceDialogueId))
+                {
+                    SubstoryLifecycleEventPayload completionPayload = BuildSubstoryLifecyclePayload(
+                        snapshotBefore.SourceDialogueId,
+                        snapshotBefore.SourceParentDialogueId,
+                        snapshotBefore.SourceDialogueTypeCode,
+                        CoreConstants.SubstoryLifecycleActionCompleted,
+                        Substories_Manager.IsUsed(snapshotBefore.SourceDialogueId),
+                        Substories_Manager.IsUsed(snapshotBefore.SourceDialogueId),
+                        queueCountAfter,
+                        queueCountAfter,
+                        delayedCountAfter,
+                        delayedCountAfter,
+                        string.Empty,
+                        false,
+                        false);
+                    EnqueueSubstoryLifecycleEventLocked(
+                        completionPayload,
+                        CoreConstants.EventTypeSubstoryCompleted,
+                        CoreConstants.EventSourceActiveDialogueInstantTransitionPatch);
+                }
+
+                SubstoryLifecycleEventPayload startedPayload = BuildSubstoryLifecyclePayload(
+                    targetDialogue.id ?? string.Empty,
+                    targetDialogue.parent ?? string.Empty,
+                    ResolveSubstoryTypeCode(targetDialogue),
+                    CoreConstants.SubstoryLifecycleActionStarted,
+                    snapshotBefore.TargetWasUsedBefore,
+                    targetUsedAfter,
+                    snapshotBefore.QueueCountBefore,
+                    queueCountAfter,
+                    snapshotBefore.DelayedCountBefore,
+                    delayedCountAfter,
+                    string.Empty,
+                    Debug_Popup.DEBUG_ON,
+                    false);
+                EnqueueSubstoryLifecycleEventLocked(
+                    startedPayload,
+                    CoreConstants.EventTypeSubstoryStarted,
+                    CoreConstants.EventSourceActiveDialogueInstantTransitionPatch);
+                if (targetDialogue.type == data_dialogues._dialogue._type.dialogue)
+                {
+                    TrackSubstoryQueuedLocked(startedPayload.substory_id);
+                }
+
+                FlushAfterCaptureLocked();
+            }
+        }
+
+        /// <summary>
+        /// Builds one normalized substory lifecycle payload for shared emit paths.
+        /// </summary>
+        private static SubstoryLifecycleEventPayload BuildSubstoryLifecyclePayload(
+            string substoryId,
+            string parentSubstoryId,
+            string substoryTypeCode,
+            string lifecycleAction,
+            bool usedBefore,
+            bool usedAfter,
+            int queueCountBefore,
+            int queueCountAfter,
+            int delayedQueueCountBefore,
+            int delayedQueueCountAfter,
+            string scheduledLaunchTime,
+            bool debugMode,
+            bool hadBeforeStartCallback)
+        {
+            return new SubstoryLifecycleEventPayload
+            {
+                substory_id = substoryId ?? string.Empty,
+                substory_parent_id = parentSubstoryId ?? string.Empty,
+                substory_type = substoryTypeCode ?? string.Empty,
+                substory_lifecycle_action = lifecycleAction ?? string.Empty,
+                debug_mode = debugMode,
+                had_before_start_callback = hadBeforeStartCallback,
+                used_before = usedBefore,
+                used_after = usedAfter,
+                queue_count_before = queueCountBefore,
+                queue_count_after = queueCountAfter,
+                delayed_queue_count_before = delayedQueueCountBefore,
+                delayed_queue_count_after = delayedQueueCountAfter,
+                scheduled_launch_time = scheduledLaunchTime ?? string.Empty,
+                event_date = CoreDateTimeUtility.ToRoundTripString(staticVars.dateTime)
+            };
+        }
+
+        /// <summary>
+        /// Enqueues one normalized substory lifecycle event.
+        /// </summary>
+        private void EnqueueSubstoryLifecycleEventLocked(SubstoryLifecycleEventPayload payload, string eventType, string sourcePatch)
+        {
+            if (payload == null || string.IsNullOrEmpty(payload.substory_id))
+            {
+                return;
+            }
+
+            EnqueueEventRecordLocked(
+                staticVars.dateTime,
+                CoreConstants.InvalidIdValue,
+                CoreConstants.EventEntityKindSubstory,
+                payload.substory_id,
+                eventType,
+                sourcePatch,
+                CoreJsonUtility.SerializeObjectPayload(payload));
         }
 
         /// <summary>
