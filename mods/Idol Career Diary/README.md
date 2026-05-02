@@ -58,7 +58,7 @@ Example:
 }
 ```
 
-Supported match fields: `event_type`, `event_types`, `entity_kind`, `entity_id`, `entity_ids`, `substory_id`, `substory_ids`.
+Supported match fields: `event_type`, `event_types`, `entity_kind`, `entity_id`, `entity_ids`, `substory_id`, `substory_ids`, `substory_id_prefix`, `substory_id_prefixes`.
 
 Supported text fields: `title`, `with_whom`, `description` or `details`, `outcome_lines`.
 
