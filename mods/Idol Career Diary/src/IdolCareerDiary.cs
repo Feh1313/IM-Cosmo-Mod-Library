@@ -52,6 +52,8 @@ namespace IdolCareerDiary
         internal const string CustomEntryEntityIdsField = "entity_ids";
         internal const string CustomEntrySubstoryIdField = "substory_id";
         internal const string CustomEntrySubstoryIdsField = "substory_ids";
+        internal const string CustomEntrySubstoryIdPrefixField = "substory_id_prefix";
+        internal const string CustomEntrySubstoryIdPrefixesField = "substory_id_prefixes";
         internal const string CustomEntryTitleField = "title";
         internal const string CustomEntryWithWhomField = "with_whom";
         internal const string CustomEntryDescriptionField = "description";
@@ -67,7 +69,7 @@ namespace IdolCareerDiary
         internal const string InfoJsonFileName = "info.json";
         internal const string InfoTitleField = "Title";
         internal const string InfoHarmonyIdField = "HarmonyID";
-        internal static readonly string LabelModSourcePrefix = ModLocalization.Get("c.LabelModSourcePrefix", "From mod: ");
+        internal static readonly string LabelModSourcePrefix = ModLocalization.Get("c.LabelModSourcePrefix", "From mod:");
         internal static readonly string ConfigCommentHeader = ModLocalization.Get("c.ConfigCommentHeader", "# IdolCareerDiary configuration");
         internal static readonly string ConfigCommentShowUnknownSocialParticipants = ModLocalization.Get("c.ConfigCommentShowUnknownSocialParticipants", "# Show social-event participants even when producer does not know them.");
         internal static readonly string[] DefaultConfigTemplateLines = new[]
@@ -3711,6 +3713,7 @@ namespace IdolCareerDiary
     {
         internal readonly List<string> EventTypes = new List<string>();
         internal readonly List<string> EntityIds = new List<string>();
+        internal readonly List<string> SubstoryIdPrefixes = new List<string>();
         internal string EntityKind = string.Empty;
         internal string Title = string.Empty;
         internal string WithWhom = string.Empty;
@@ -3735,7 +3738,7 @@ namespace IdolCareerDiary
                 return false;
             }
 
-            if (EntityIds.Count == C.ZeroIndex)
+            if (EntityIds.Count == C.ZeroIndex && SubstoryIdPrefixes.Count == C.ZeroIndex)
             {
                 return true;
             }
@@ -3746,7 +3749,13 @@ namespace IdolCareerDiary
             }
 
             string substoryId = payload != null ? ReadJsonField(payload, C.KeySubstoryId) : string.Empty;
-            return ContainsOrdinal(EntityIds, substoryId);
+            if (ContainsOrdinal(EntityIds, substoryId))
+            {
+                return true;
+            }
+
+            return StartsWithAny(SubstoryIdPrefixes, ev.EntityId ?? string.Empty)
+                || StartsWithAny(SubstoryIdPrefixes, substoryId);
         }
 
         private static string ReadJsonField(JSONNode payload, string field)
@@ -3780,6 +3789,25 @@ namespace IdolCareerDiary
             for (int i = C.ZeroIndex; i < values.Count; i++)
             {
                 if (string.Equals(values[i], candidate, StringComparison.Ordinal))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool StartsWithAny(List<string> values, string candidate)
+        {
+            if (values == null || string.IsNullOrEmpty(candidate))
+            {
+                return false;
+            }
+
+            for (int i = C.ZeroIndex; i < values.Count; i++)
+            {
+                string prefix = values[i];
+                if (!string.IsNullOrEmpty(prefix) && candidate.StartsWith(prefix, StringComparison.Ordinal))
                 {
                     return true;
                 }
@@ -4462,6 +4490,8 @@ namespace IdolCareerDiary
             AddStringOrArray(entry.EntityIds, node, C.CustomEntryEntityIdsField);
             AddStringOrArray(entry.EntityIds, node, C.CustomEntrySubstoryIdField);
             AddStringOrArray(entry.EntityIds, node, C.CustomEntrySubstoryIdsField);
+            AddStringOrArray(entry.SubstoryIdPrefixes, node, C.CustomEntrySubstoryIdPrefixField);
+            AddStringOrArray(entry.SubstoryIdPrefixes, node, C.CustomEntrySubstoryIdPrefixesField);
             AddStringOrArray(entry.OutcomeLines, node, C.CustomEntryOutcomeLinesField);
             entry.EntityKind = NormalizeEntryText(ReadJsonField(node, C.CustomEntryEntityKindField));
             if (entry.EntityKind == C.LabelUnknown)
@@ -4477,7 +4507,7 @@ namespace IdolCareerDiary
                 entry.Description = NormalizeEntryText(ReadJsonField(node, C.CustomEntryDetailsField));
             }
 
-            if (entry.EventTypes.Count == C.ZeroIndex && entry.EntityIds.Count == C.ZeroIndex)
+            if (entry.EventTypes.Count == C.ZeroIndex && entry.EntityIds.Count == C.ZeroIndex && entry.SubstoryIdPrefixes.Count == C.ZeroIndex)
             {
                 return null;
             }
@@ -8165,7 +8195,7 @@ namespace IdolCareerDiary
                 AddText(diaryDetailContentRoot, C.LabelSourcePrefix + p.Source);
                 if (!string.IsNullOrEmpty(p.ModSource))
                 {
-                    AddText(diaryDetailContentRoot, C.LabelModSourcePrefix + p.ModSource);
+                    AddText(diaryDetailContentRoot, C.LabelModSourcePrefix + C.SeparatorSpace + p.ModSource);
                 }
 
                 if (C.ShowTechnicalEventMetadata)
@@ -11433,7 +11463,14 @@ namespace IdolCareerDiary
             List<string> outcomeLines = new List<string>();
 
             string type = ev.EventType ?? string.Empty;
-            if (type == C.EventSingleReleased || type == C.EventSingleParticipationRecorded)
+            CustomDiaryEntry customEntry;
+            bool customEntryApplied = TryApplyCustomDiaryEntry(ev, payload, p, outcomeLines, out customEntry);
+
+            if (customEntryApplied)
+            {
+                // Presentation supplied by custom diary JSON.
+            }
+            else if (type == C.EventSingleReleased || type == C.EventSingleParticipationRecorded)
             {
                 p.Title = C.TextSingleReleased;
                 p.WithWhom = ResolveSingleTitle(ev, payload);
@@ -12168,6 +12205,29 @@ namespace IdolCareerDiary
             }
 
             return p;
+        }
+
+        /// <summary>
+        /// Applies one JSON-supplied diary presentation before built-in event formatting.
+        /// </summary>
+        private bool TryApplyCustomDiaryEntry(IMDataCoreEvent ev, JSONNode payload, Presentation p, List<string> outcomeLines, out CustomDiaryEntry customEntry)
+        {
+            customEntry = null;
+            if (ev == null || p == null || outcomeLines == null)
+            {
+                return false;
+            }
+
+            if (!CustomDiaryCatalog.TryFind(ev, payload, out customEntry))
+            {
+                return false;
+            }
+
+            string substoryDisplayName = ResolveSubstoryDisplayName(payload, C.KeySubstoryId, C.KeySubstoryDisplayName);
+            string parentDisplayName = ResolveSubstoryDisplayName(payload, C.KeySubstoryParentId, C.KeySubstoryParentDisplayName);
+            string involvedIdols = BuildActorSummary(ReadStr(payload, C.KeyActorsSummary));
+            ApplyCustomDiaryEntry(customEntry, payload, p, outcomeLines, substoryDisplayName, parentDisplayName, involvedIdols);
+            return true;
         }
 
         /// <summary>
