@@ -20,6 +20,7 @@ This mod does not ship a separate persistence backend. It reads timeline events 
 ## Custom Diary Entries For Content Mods
 
 JSON-only mods can add player-facing diary text without Harmony or an IM Data Core DLL reference.
+The diary infers the source mod from the same folder's `info.json` and displays it as `From mod: <Title>`.
 
 Put one or more `.json` files in either folder inside your mod:
 
@@ -69,6 +70,8 @@ Supported actor tokens:
 - `{girl1_possessive}` or `{girl1's}` for possessive prose
 - `{actor:girl1}` and `{actor:girl1:possessive}` as explicit actor-tag forms
 - `{idol1}`, `{idol2}`, `{idol3}` for first/second/third idol actors in capture order
+
+Harmony/API mods that append events through IM Data Core are also attributed when the event namespace or source hook matches an installed mod's `info.json` `HarmonyID`, DLL name, folder name, or title.
 
 ## Installation
 

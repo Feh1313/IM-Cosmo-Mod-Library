@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
+using System.Text;
 using HarmonyLib;
 using SimpleJSON;
 using TMPro;
@@ -63,6 +64,10 @@ namespace IdolCareerDiary
         internal const string CustomTokenSubstory = "{substory}";
         internal const string CustomTokenParentStory = "{parent_story}";
         internal const string CustomTokenAction = "{action}";
+        internal const string InfoJsonFileName = "info.json";
+        internal const string InfoTitleField = "Title";
+        internal const string InfoHarmonyIdField = "HarmonyID";
+        internal static readonly string LabelModSourcePrefix = ModLocalization.Get("c.LabelModSourcePrefix", "From mod: ");
         internal static readonly string ConfigCommentHeader = ModLocalization.Get("c.ConfigCommentHeader", "# IdolCareerDiary configuration");
         internal static readonly string ConfigCommentShowUnknownSocialParticipants = ModLocalization.Get("c.ConfigCommentShowUnknownSocialParticipants", "# Show social-event participants even when producer does not know them.");
         internal static readonly string[] DefaultConfigTemplateLines = new[]
@@ -3694,6 +3699,7 @@ namespace IdolCareerDiary
         internal string WithWhom = string.Empty;
         internal string Outcome = string.Empty;
         internal string Source = string.Empty;
+        internal string ModSource = string.Empty;
         internal string PayloadPreview = string.Empty;
         internal List<int> RelatedIdols = new List<int>();
     }
@@ -3709,6 +3715,7 @@ namespace IdolCareerDiary
         internal string Title = string.Empty;
         internal string WithWhom = string.Empty;
         internal string Description = string.Empty;
+        internal string SourceModTitle = string.Empty;
         internal readonly List<string> OutcomeLines = new List<string>();
 
         internal bool Matches(IMDataCoreEvent ev, JSONNode payload)
@@ -3783,6 +3790,495 @@ namespace IdolCareerDiary
     }
 
     /// <summary>
+    /// Basic metadata discovered from one installed mod folder.
+    /// </summary>
+    internal sealed class ModInfoEntry
+    {
+        internal string RootPath = string.Empty;
+        internal string Title = string.Empty;
+        internal string HarmonyId = string.Empty;
+        internal string FolderName = string.Empty;
+        internal readonly List<string> DllNames = new List<string>();
+    }
+
+    /// <summary>
+    /// Scans installed mod folders and resolves player-facing source names.
+    /// </summary>
+    internal static class ModInfoCatalog
+    {
+        private static readonly object Sync = new object();
+        private static readonly List<ModInfoEntry> Entries = new List<ModInfoEntry>();
+        private static bool loaded;
+
+        internal static void EnsureLoaded()
+        {
+            lock (Sync)
+            {
+                if (loaded)
+                {
+                    return;
+                }
+
+                loaded = true;
+                LoadUnsafe();
+            }
+        }
+
+        internal static List<string> GetCandidateModRoots()
+        {
+            EnsureLoaded();
+            List<string> roots = new List<string>();
+            lock (Sync)
+            {
+                for (int i = C.ZeroIndex; i < Entries.Count; i++)
+                {
+                    AddDirectory(roots, Entries[i].RootPath);
+                }
+            }
+
+            return roots;
+        }
+
+        internal static string ResolveTitleForRoot(string modRoot)
+        {
+            EnsureLoaded();
+            string normalizedRoot = NormalizePath(modRoot);
+            if (string.IsNullOrEmpty(normalizedRoot))
+            {
+                return string.Empty;
+            }
+
+            lock (Sync)
+            {
+                for (int i = C.ZeroIndex; i < Entries.Count; i++)
+                {
+                    if (string.Equals(Entries[i].RootPath, normalizedRoot, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return Entries[i].Title;
+                    }
+                }
+            }
+
+            return string.Empty;
+        }
+
+        internal static string ResolveEventSourceTitle(IMDataCoreEvent ev)
+        {
+            if (ev == null)
+            {
+                return string.Empty;
+            }
+
+            EnsureLoaded();
+            string namespaceId = NormalizeInfoToken(ev.NamespaceId);
+            string sourcePatch = NormalizeInfoToken(ev.SourcePatch);
+
+            lock (Sync)
+            {
+                string title = ResolveByExactTokenUnsafe(namespaceId);
+                if (!string.IsNullOrEmpty(title))
+                {
+                    return title;
+                }
+
+                title = ResolveByContainedTokenUnsafe(sourcePatch);
+                if (!string.IsNullOrEmpty(title))
+                {
+                    return title;
+                }
+
+            }
+
+            return string.Empty;
+        }
+
+        private static void LoadUnsafe()
+        {
+            List<string> roots = ResolveCandidateRootsUnsafe();
+            for (int i = C.ZeroIndex; i < roots.Count; i++)
+            {
+                ModInfoEntry entry = ReadModInfoUnsafe(roots[i]);
+                if (entry != null)
+                {
+                    Entries.Add(entry);
+                }
+            }
+        }
+
+        private static List<string> ResolveCandidateRootsUnsafe()
+        {
+            List<string> roots = new List<string>();
+            string assemblyDirectory = GetAssemblyDirectory();
+            AddDirectory(roots, assemblyDirectory);
+
+            string parent = SafeGetParent(assemblyDirectory);
+            if (!string.IsNullOrEmpty(parent))
+            {
+                AddDirectory(roots, parent);
+                AddChildDirectories(roots, parent);
+            }
+
+            string grandParent = SafeGetParent(parent);
+            if (!string.IsNullOrEmpty(grandParent))
+            {
+                AddChildDirectories(roots, grandParent);
+            }
+
+            try
+            {
+                AddChildDirectories(roots, Path.Combine(Application.persistentDataPath, "Mods"));
+            }
+            catch
+            {
+            }
+
+            return roots;
+        }
+
+        private static ModInfoEntry ReadModInfoUnsafe(string root)
+        {
+            string normalizedRoot = NormalizePath(root);
+            if (string.IsNullOrEmpty(normalizedRoot) || !Directory.Exists(normalizedRoot))
+            {
+                return null;
+            }
+
+            ModInfoEntry entry = new ModInfoEntry();
+            entry.RootPath = normalizedRoot;
+            entry.FolderName = Path.GetFileName(normalizedRoot) ?? string.Empty;
+            entry.Title = entry.FolderName;
+
+            string infoPath = Path.Combine(normalizedRoot, C.InfoJsonFileName);
+            if (File.Exists(infoPath))
+            {
+                try
+                {
+                    JSONNode info = ParseJson(File.ReadAllText(infoPath));
+                    string title = NormalizeInfoText(ReadJsonField(info, C.InfoTitleField));
+                    if (!string.IsNullOrEmpty(title))
+                    {
+                        entry.Title = title;
+                    }
+
+                    entry.HarmonyId = NormalizeInfoText(ReadJsonField(info, C.InfoHarmonyIdField));
+                }
+                catch
+                {
+                }
+            }
+
+            AddDllNames(entry, normalizedRoot);
+            return entry;
+        }
+
+        private static void AddDllNames(ModInfoEntry entry, string root)
+        {
+            if (entry == null || string.IsNullOrEmpty(root))
+            {
+                return;
+            }
+
+            string[] dlls;
+            try
+            {
+                dlls = Directory.GetFiles(root, "*.dll", SearchOption.TopDirectoryOnly);
+            }
+            catch
+            {
+                return;
+            }
+
+            for (int i = C.ZeroIndex; i < dlls.Length; i++)
+            {
+                string name = Path.GetFileNameWithoutExtension(dlls[i]);
+                if (!string.IsNullOrEmpty(name))
+                {
+                    entry.DllNames.Add(name);
+                }
+            }
+        }
+
+        private static string ResolveByExactTokenUnsafe(string token)
+        {
+            if (string.IsNullOrEmpty(token))
+            {
+                return string.Empty;
+            }
+
+            for (int i = C.ZeroIndex; i < Entries.Count; i++)
+            {
+                ModInfoEntry entry = Entries[i];
+                if (TokenEquals(entry.HarmonyId, token)
+                    || TokenEquals(entry.FolderName, token)
+                    || TokenEquals(entry.Title, token)
+                    || ListContainsToken(entry.DllNames, token))
+                {
+                    return entry.Title;
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static string ResolveByContainedTokenUnsafe(string token)
+        {
+            if (string.IsNullOrEmpty(token))
+            {
+                return string.Empty;
+            }
+
+            for (int i = C.ZeroIndex; i < Entries.Count; i++)
+            {
+                ModInfoEntry entry = Entries[i];
+                if (IsInternalFrameworkEntry(entry))
+                {
+                    continue;
+                }
+
+                if (TokenContains(token, entry.HarmonyId)
+                    || TokenContains(token, entry.Title)
+                    || TokenContains(token, entry.FolderName)
+                    || ListTokenContainedIn(token, entry.DllNames))
+                {
+                    return entry.Title;
+                }
+            }
+
+            return string.Empty;
+        }
+
+        private static bool IsInternalFrameworkEntry(ModInfoEntry entry)
+        {
+            if (entry == null)
+            {
+                return false;
+            }
+
+            return TokenEquals(entry.HarmonyId, C.HarmonyIdImDataCore)
+                || TokenEquals(entry.HarmonyId, C.HarmonyIdImUiFramework)
+                || TokenEquals(entry.HarmonyId, C.HarmonyId);
+        }
+
+        private static bool ListContainsToken(List<string> values, string token)
+        {
+            if (values == null)
+            {
+                return false;
+            }
+
+            for (int i = C.ZeroIndex; i < values.Count; i++)
+            {
+                if (TokenEquals(values[i], token))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool ListTokenContainedIn(string haystack, List<string> values)
+        {
+            if (values == null)
+            {
+                return false;
+            }
+
+            for (int i = C.ZeroIndex; i < values.Count; i++)
+            {
+                if (TokenContains(haystack, values[i]))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private static bool TokenEquals(string left, string right)
+        {
+            string normalizedLeft = NormalizeInfoToken(left);
+            string normalizedRight = NormalizeInfoToken(right);
+            return !string.IsNullOrEmpty(normalizedLeft)
+                && !string.IsNullOrEmpty(normalizedRight)
+                && string.Equals(normalizedLeft, normalizedRight, StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static bool TokenContains(string haystack, string needle)
+        {
+            string normalizedHaystack = NormalizeInfoToken(haystack);
+            string normalizedNeedle = NormalizeInfoToken(needle);
+            return !string.IsNullOrEmpty(normalizedHaystack)
+                && !string.IsNullOrEmpty(normalizedNeedle)
+                && normalizedNeedle.Length >= 4
+                && normalizedHaystack.IndexOf(normalizedNeedle, StringComparison.OrdinalIgnoreCase) >= C.ZeroIndex;
+        }
+
+        private static string NormalizeInfoToken(string value)
+        {
+            if (string.IsNullOrEmpty(value))
+            {
+                return string.Empty;
+            }
+
+            char[] chars = value.ToLowerInvariant().ToCharArray();
+            StringBuilder builder = new StringBuilder(chars.Length);
+            for (int i = C.ZeroIndex; i < chars.Length; i++)
+            {
+                char c = chars[i];
+                if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9'))
+                {
+                    builder.Append(c);
+                }
+            }
+
+            return builder.ToString();
+        }
+
+        private static string NormalizeInfoText(string value)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return string.Empty;
+            }
+
+            return value.Trim();
+        }
+
+        private static JSONNode ParseJson(string json)
+        {
+            if (string.IsNullOrEmpty(json))
+            {
+                return null;
+            }
+
+            try
+            {
+                return JSON.Parse(json);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static string ReadJsonField(JSONNode payload, string field)
+        {
+            if (payload == null || string.IsNullOrEmpty(field))
+            {
+                return string.Empty;
+            }
+
+            JSONNode node = payload[field];
+            if (node == null || IsLazyCreatorNode(node))
+            {
+                return string.Empty;
+            }
+
+            return node.Value ?? string.Empty;
+        }
+
+        private static bool IsLazyCreatorNode(JSONNode node)
+        {
+            return node != null && string.Equals(node.GetType().Name, C.JsonLazyCreatorRuntimeTypeName, StringComparison.Ordinal);
+        }
+
+        private static void AddChildDirectories(List<string> destination, string root)
+        {
+            if (destination == null || string.IsNullOrEmpty(root) || !Directory.Exists(root))
+            {
+                return;
+            }
+
+            string[] directories;
+            try
+            {
+                directories = Directory.GetDirectories(root);
+            }
+            catch
+            {
+                return;
+            }
+
+            for (int i = C.ZeroIndex; i < directories.Length; i++)
+            {
+                AddDirectory(destination, directories[i]);
+            }
+        }
+
+        private static void AddDirectory(List<string> destination, string path)
+        {
+            string normalizedPath = NormalizePath(path);
+            if (destination == null || string.IsNullOrEmpty(normalizedPath) || !Directory.Exists(normalizedPath))
+            {
+                return;
+            }
+
+            for (int i = C.ZeroIndex; i < destination.Count; i++)
+            {
+                if (string.Equals(destination[i], normalizedPath, StringComparison.OrdinalIgnoreCase))
+                {
+                    return;
+                }
+            }
+
+            destination.Add(normalizedPath);
+        }
+
+        private static string NormalizePath(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                return Path.GetFullPath(path);
+            }
+            catch
+            {
+                return path;
+            }
+        }
+
+        private static string GetAssemblyDirectory()
+        {
+            try
+            {
+                string path = Assembly.GetExecutingAssembly().Location;
+                if (!string.IsNullOrEmpty(path))
+                {
+                    return Path.GetDirectoryName(path);
+                }
+            }
+            catch
+            {
+            }
+
+            return string.Empty;
+        }
+
+        private static string SafeGetParent(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+            {
+                return string.Empty;
+            }
+
+            try
+            {
+                DirectoryInfo parent = Directory.GetParent(path);
+                return parent != null ? parent.FullName : string.Empty;
+            }
+            catch
+            {
+                return string.Empty;
+            }
+        }
+    }
+
+    /// <summary>
     /// Loads optional diary text from content mod folders.
     /// </summary>
     internal static class CustomDiaryCatalog
@@ -3827,7 +4323,7 @@ namespace IdolCareerDiary
         private static void LoadUnsafe()
         {
             HashSet<string> scannedFolders = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            List<string> modRoots = ResolveCandidateModRoots();
+            List<string> modRoots = ModInfoCatalog.GetCandidateModRoots();
             for (int i = C.ZeroIndex; i < modRoots.Count; i++)
             {
                 LoadFromModRootUnsafe(modRoots[i], scannedFolders);
@@ -3876,11 +4372,12 @@ namespace IdolCareerDiary
                 return;
             }
 
-            LoadFromFolderUnsafe(Path.Combine(modRoot, C.CustomEntriesFolderName), scannedFolders);
-            LoadFromFolderUnsafe(Path.Combine(modRoot, C.CustomEntriesFolderNameCompact), scannedFolders);
+            string sourceModTitle = ModInfoCatalog.ResolveTitleForRoot(modRoot);
+            LoadFromFolderUnsafe(Path.Combine(modRoot, C.CustomEntriesFolderName), scannedFolders, sourceModTitle);
+            LoadFromFolderUnsafe(Path.Combine(modRoot, C.CustomEntriesFolderNameCompact), scannedFolders, sourceModTitle);
         }
 
-        private static void LoadFromFolderUnsafe(string folder, HashSet<string> scannedFolders)
+        private static void LoadFromFolderUnsafe(string folder, HashSet<string> scannedFolders, string sourceModTitle)
         {
             if (string.IsNullOrEmpty(folder) || !Directory.Exists(folder))
             {
@@ -3915,11 +4412,11 @@ namespace IdolCareerDiary
 
             for (int i = C.ZeroIndex; i < files.Length; i++)
             {
-                LoadFileUnsafe(files[i]);
+                LoadFileUnsafe(files[i], sourceModTitle);
             }
         }
 
-        private static void LoadFileUnsafe(string path)
+        private static void LoadFileUnsafe(string path, string sourceModTitle)
         {
             try
             {
@@ -3940,6 +4437,7 @@ namespace IdolCareerDiary
                     CustomDiaryEntry entry = ParseEntry(entries[i]);
                     if (entry != null)
                     {
+                        entry.SourceModTitle = sourceModTitle ?? string.Empty;
                         Entries.Add(entry);
                     }
                 }
@@ -5567,6 +6065,11 @@ namespace IdolCareerDiary
             if (title != C.LabelUnknown)
             {
                 p.Title = title;
+            }
+
+            if (!string.IsNullOrEmpty(entry.SourceModTitle))
+            {
+                p.ModSource = entry.SourceModTitle;
             }
 
             string withWhom = FormatCustomDiaryTemplate(entry.WithWhom, substoryDisplayName, parentDisplayName, involvedIdols, payload);
@@ -7660,6 +8163,11 @@ namespace IdolCareerDiary
                 AddText(diaryDetailContentRoot, C.LabelWhatPrefix + p.Title);
                 AddText(diaryDetailContentRoot, C.LabelWithWhomPrefix + p.WithWhom);
                 AddText(diaryDetailContentRoot, C.LabelSourcePrefix + p.Source);
+                if (!string.IsNullOrEmpty(p.ModSource))
+                {
+                    AddText(diaryDetailContentRoot, C.LabelModSourcePrefix + p.ModSource);
+                }
+
                 if (C.ShowTechnicalEventMetadata)
                 {
                     AddText(diaryDetailContentRoot, C.LabelNamespacePrefix + Normalize(ev.NamespaceId));
@@ -10913,12 +11421,14 @@ namespace IdolCareerDiary
                 p.WithWhom = C.LabelUnknown;
                 p.Outcome = C.LabelUnknown;
                 p.Source = C.LabelUnknown;
+                p.ModSource = string.Empty;
                 return p;
             }
 
             JSONNode payload = ParsePayload(ev.PayloadJson);
             p.Date = ResolveDate(ev);
             p.Source = ResolveSourceLabel(ev, payload);
+            p.ModSource = ModInfoCatalog.ResolveEventSourceTitle(ev);
             p.PayloadPreview = BuildPayloadPreview(ev.PayloadJson);
             List<string> outcomeLines = new List<string>();
 
@@ -18557,6 +19067,7 @@ namespace IdolCareerDiary
 
             Runtime.BootstrapSessionIfNeeded();
             DiarySettings.EnsureLoaded();
+            ModInfoCatalog.EnsureLoaded();
             CustomDiaryCatalog.EnsureLoaded();
         }
     }
