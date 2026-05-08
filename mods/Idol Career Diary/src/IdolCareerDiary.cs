@@ -1995,8 +1995,16 @@ namespace IdolCareerDiary
         internal const string CodeIncreased = "increased";
         internal const string CodeDecreased = "decreased";
         internal const string CodeLowered = "lowered";
+        internal static readonly string LabelFree = ModLocalization.Get("LabelFree","Free");
+        internal static readonly string LabelTV = ModLocalization.Get("LabelTV","TV");
+        internal static readonly string LabelSSK = ModLocalization.Get("LabelSSK","Idol Election");
+        internal static readonly string LabelIncreased = ModLocalization.Get("LabelIncreased", "Increased");
+        internal static readonly string LabelDecreased = ModLocalization.Get("LabelDecreased","Decreased");
+        internal static readonly string LabelLowered = ModLocalization.Get("LabelLowered","Lowered");
         internal static readonly string LabelReduced = ModLocalization.Get("LabelReduced", "Reduced");
         internal const string KeyManualSet = "manual_set";
+        internal static readonly string LabelSet = ModLocalization.Get("LabelSet","Set");
+        internal static readonly string LabelSaved = ModLocalization.Get("LabelSaved","Saved");
         internal const string CodeSet = "set";
         internal const string CodeSaved = "saved";
         internal static readonly string LabelUpdated = ModLocalization.Get("LabelUpdated", "Updated");
@@ -14759,6 +14767,29 @@ namespace IdolCareerDiary
                 return C.LabelUnknown;
             }
 
+            // --- NEW LOCALIZATION PATCH START ---
+            // Generates a safe key from the raw text for ModLocalization lookup.
+            // e.g., "Broken Heel" becomes "RawText.Broken_Heel"
+            char[] keyBuffer = trimmed.ToCharArray();
+            for (int i = 0; i < keyBuffer.Length; i++)
+            {
+                char c = keyBuffer[i];
+                // ModLocalization.NormalizeKey only allows letters, digits, ., _, and -
+                if (!char.IsLetterOrDigit(c) && c != '.' && c != '_' && c != '-')
+                {
+                    keyBuffer[i] = '_';
+                }
+            }
+            
+            string safeKey = "RawText." + new string(keyBuffer);
+            string localizedString = ModLocalization.Get(safeKey, string.Empty);
+            
+            if (!string.IsNullOrEmpty(localizedString))
+            {
+                return localizedString;
+            }
+            // --- NEW LOCALIZATION PATCH END ---
+
             return trimmed;
         }
 
@@ -16954,7 +16985,7 @@ namespace IdolCareerDiary
             }
 
             readable = CultureInfo.InvariantCulture.TextInfo.ToTitleCase(readable);
-            readable = readable.Replace(C.CodeTv, C.CodeTv).Replace(C.LabelMc, C.LabelMc).Replace(C.CodeSsk, C.CodeSsk);
+            readable = readable.Replace(C.CodeTv, C.LabelTV).Replace(C.LabelMc, C.LabelMc).Replace(C.CodeSsk, C.LabelSSK);
             return readable;
         }
 
@@ -16976,7 +17007,7 @@ namespace IdolCareerDiary
             switch (action)
             {
                 case C.CodeIncreased:
-                    return C.CodeIncreased;
+                    return C.LabelIncreased;
                 case C.CodeDecreased:
                 case C.CodeLowered:
                     return C.LabelReduced;
