@@ -914,3 +914,5 @@ CodeLabel.show_relaunch_finished=Перезапуск шоу завершен
 CodeLabel.substory_started=Побочная история начата
 CodeLabel.substory_completed=Побочная история завершена
 CodeLabel.scandal_mitigated=Скандал улажен
+TextFilterModeInclude=Режим: Включить
+TextFilterModeExclude=Режим: Исключить

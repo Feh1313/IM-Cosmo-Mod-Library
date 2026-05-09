@@ -2012,6 +2012,8 @@ namespace IdolCareerDiary
         internal static readonly string LabelNo = ModLocalization.Get("LabelNo", "No");
         internal const string FormatZeroZeroZero = "+#,0;-#,0;0";
         internal static readonly string TextGroup = ModLocalization.Get("TextGroup", "Group #");
+        internal static readonly string TextFilterModeInclude = ModLocalization.Get("TextFilterModeInclude", "Mode: Include");
+        internal static readonly string TextFilterModeExclude = ModLocalization.Get("TextFilterModeExclude", "Mode: Exclude");
         internal const string UiNameCareerDiaryTitlePrefix = "CareerDiary_Title_";
         internal const string UiNameCareerDiaryTextPrefix = "CareerDiary_Text_";
         internal const string UiNameCareerDiaryDividerPrefix = "CareerDiary_Divider_";
@@ -4730,7 +4732,8 @@ namespace IdolCareerDiary
         private bool injectionInProgress;
 
         private readonly List<IMDataCoreEvent> cachedEvents = new List<IMDataCoreEvent>();
-        private readonly HashSet<string> excludedEventTypes = new HashSet<string>(StringComparer.Ordinal);
+        private readonly HashSet<string> selectedFilterEventTypes = new HashSet<string>(StringComparer.Ordinal);
+        private bool filterModeIsExclude = true;
         private int maxEventsRenderCurrent = C.MaxEventsRender;
         private long selectedEventId = C.InvalidEventId;
 
@@ -4850,7 +4853,7 @@ namespace IdolCareerDiary
             idol = currentIdol ?? popup.Girl;
             if (previousIdolId != incomingIdolId)
             {
-                excludedEventTypes.Clear();
+                selectedFilterEventTypes.Clear();
                 maxEventsRenderCurrent = C.MaxEventsRender;
             }
 
@@ -7504,12 +7507,12 @@ namespace IdolCareerDiary
                 C.LabelClearFilters,
                 delegate
                 {
-                    if (excludedEventTypes.Count == C.ZeroIndex)
+                    if (selectedFilterEventTypes.Count == C.ZeroIndex)
                     {
                         return;
                     }
 
-                    excludedEventTypes.Clear();
+                    selectedFilterEventTypes.Clear();
                     RenderDiary();
                 },
                 false,
@@ -7517,9 +7520,29 @@ namespace IdolCareerDiary
                 C.TimelineActionToolbarButtonMaximumWidth);
             if (clearFiltersButton != null)
             {
-                bool hasActiveFilters = excludedEventTypes.Count > C.ZeroIndex;
+                bool hasActiveFilters = selectedFilterEventTypes.Count > C.ZeroIndex;
                 clearFiltersButton.interactable = hasActiveFilters;
                 SetButtonSelected(clearFiltersButton, hasActiveFilters);
+            }
+
+            Button filterModeButton = CreateWrappedTimelineButton(
+                timelineActionRows,
+                C.UiNameCareerDiaryTimelineAction,
+                ref timelineButtonIndex,
+                C.TimelineToolbarActionsPerRow,
+                "CareerDiary_ActionButton_ToggleFilterMode",
+                filterModeIsExclude ? C.TextFilterModeExclude : C.TextFilterModeInclude,
+                delegate
+                {
+                    filterModeIsExclude = !filterModeIsExclude;
+                    RenderDiary();
+                },
+                false,
+                C.TimelineActionToolbarButtonMinimumWidth,
+                C.TimelineActionToolbarButtonMaximumWidth);
+            if (filterModeButton != null)
+            {
+                SetButtonSelected(filterModeButton, !filterModeIsExclude);
             }
 
             RenderTimelineFilterControls();
@@ -7687,7 +7710,7 @@ namespace IdolCareerDiary
         {
             if (timelineEvents == null || timelineEvents.Count == C.ZeroIndex)
             {
-                AddText(excludedEventTypes.Count > C.ZeroIndex ? C.LabelNoEventsAfterFilters : C.LabelNoEvents);
+                AddText(selectedFilterEventTypes.Count > C.ZeroIndex ? C.LabelNoEventsAfterFilters : C.LabelNoEvents);
                 return;
             }
 
@@ -8013,7 +8036,7 @@ namespace IdolCareerDiary
             for (int i = C.ZeroIndex; i < filterTypes.Count; i++)
             {
                 string eventType = filterTypes[i];
-                bool excluded = excludedEventTypes.Contains(eventType);
+                bool isSelected = selectedFilterEventTypes.Contains(eventType);
                 string buttonLabel = HumanizeCode(eventType);
                 string capturedType = eventType;
 
@@ -8032,7 +8055,7 @@ namespace IdolCareerDiary
                     C.TimelineFilterButtonMinimumWidth,
                     C.TimelineFilterButtonMaximumWidth);
 
-                SetButtonSelected(filterButton, excluded);
+                SetButtonSelected(filterButton, isSelected);
             }
         }
 
@@ -8079,17 +8102,17 @@ namespace IdolCareerDiary
                 return string.Compare(a.Key, b.Key, StringComparison.Ordinal);
             });
 
-            List<string> result = new List<string>(ranked.Count + excludedEventTypes.Count);
+            List<string> result = new List<string>(ranked.Count + selectedFilterEventTypes.Count);
             for (int i = C.ZeroIndex; i < ranked.Count; i++)
             {
                 result.Add(ranked[i].Key);
             }
 
-            // Keep any manually excluded legacy types visible even if current timeline has none.
-            if (excludedEventTypes.Count > C.ZeroIndex)
+            // Keep any manually selected legacy types visible even if current timeline has none.
+            if (selectedFilterEventTypes.Count > C.ZeroIndex)
             {
                 List<string> extras = new List<string>();
-                foreach (string excludedType in excludedEventTypes)
+                foreach (string excludedType in selectedFilterEventTypes)
                 {
                     string canonicalExcludedType = CanonicalizeTimelineEventType(excludedType);
                     if (string.IsNullOrEmpty(canonicalExcludedType) || counts.ContainsKey(canonicalExcludedType))
@@ -8118,9 +8141,30 @@ namespace IdolCareerDiary
         /// </summary>
         private bool IsExcludedByUserFilters(IMDataCoreEvent ev)
         {
-            return ev != null
-                && !string.IsNullOrEmpty(ev.EventType)
-                && excludedEventTypes.Contains(CanonicalizeTimelineEventType(ev.EventType));
+            if (ev == null || string.IsNullOrEmpty(ev.EventType))
+            {
+                return false;
+            }
+
+            // When no categories are selected, nothing is filtered.
+            if (selectedFilterEventTypes.Count == C.ZeroIndex)
+            {
+                return false;
+            }
+
+            string canonicalType = CanonicalizeTimelineEventType(ev.EventType);
+            bool isSelected = selectedFilterEventTypes.Contains(canonicalType);
+
+            if (filterModeIsExclude)
+            {
+                // Exclude mode: Hide the event if its type is selected
+                return isSelected;
+            }
+            else
+            {
+                // Include mode: Hide the event if its type is NOT selected
+                return !isSelected;
+            }
         }
 
         /// <summary>
@@ -8134,9 +8178,9 @@ namespace IdolCareerDiary
                 return;
             }
 
-            if (!excludedEventTypes.Add(canonicalType))
+            if (!selectedFilterEventTypes.Add(canonicalType))
             {
-                excludedEventTypes.Remove(canonicalType);
+                selectedFilterEventTypes.Remove(canonicalType);
             }
 
             RenderDiary();

@@ -914,3 +914,5 @@ CodeLabel.show_relaunch_finished=番組リニューアル完了
 CodeLabel.substory_started=サブストーリー開始
 CodeLabel.substory_completed=サブストーリー完了
 CodeLabel.scandal_mitigated=スキャンダル鎮静化
+TextFilterModeInclude=モード：含める
+TextFilterModeExclude=モード：除外
