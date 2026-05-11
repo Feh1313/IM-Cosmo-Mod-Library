@@ -1012,5 +1012,5 @@ CodeLabel.show_relaunch_finished=Show Relaunch Finished
 CodeLabel.substory_started=Substory Started
 CodeLabel.substory_completed=Substory Completed
 CodeLabel.scandal_mitigated=Scandal Mitigated
-TextModeInclude=Mode: Include
-TextModeExclude=Mode: Exclude
+TextFilterModeInclude=Mode: Include
+TextFilterModeExclude=Mode: Exclude
