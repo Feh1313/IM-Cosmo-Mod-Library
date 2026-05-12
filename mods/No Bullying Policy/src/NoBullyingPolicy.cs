@@ -1,19 +1,18 @@
 using UnityEngine;
-using UnityEngine.UI;
 using HarmonyLib;
 
 namespace NoBullyingPolicyMod
 {
     internal static class C
     {
-        // Use integers mapped to the JSON so Enum.Parse doesn't crash the game
+        // Numeric enum values keep the policy data loadable without modifying the game's enum definitions.
         internal const int PolicyTypeBullying = 100;
-        internal const int PolicyValueEnabled = 1000;
-        internal const int PolicyValueDisabled = 1001;
+        internal const int PolicyValueDefault = 1001;
+        internal const int PolicyValueDisabled = 1002;
 
         internal const string RelationshipsTargetMethod = "Do_Bullying";
-        internal const string PolicyObjName="Policy_Bullying";
-        internal const string HarmonyUITargetMethodPatch="Start";
+        internal const string PolicyObjName = "Policy_Bullying";
+        internal const string PolicyStartMethodName = "Start";
     }
 
     // 1. Localization Hook: Translates the JSON keys into text right after the policy loads
@@ -47,7 +46,7 @@ namespace NoBullyingPolicyMod
             // Retrieve our custom policy using the integer
             policies.value activePolicy = policies.GetSelectedPolicyValue((policies._type)C.PolicyTypeBullying);
             
-            // 1001 is the "No Bullying" option
+            // 1002 is the "No Bullying" option.
             if (activePolicy != null && (int)activePolicy.Value == C.PolicyValueDisabled)
             {
                 // Skip the original method, preventing new girls from being targeted
@@ -86,39 +85,61 @@ namespace NoBullyingPolicyMod
         }
     }
 
-    [HarmonyPatch(typeof(policies), C.HarmonyUITargetMethodPatch)]
-    internal static class Policies_UI_Injection_Patch
+    [HarmonyPatch(typeof(Policy), C.PolicyStartMethodName)]
+    internal static class Policy_Start_UI_Injection_Patch
     {
-        private static void Postfix(policies __instance)
+        private static bool isInjecting;
+
+        private static void Postfix(Policy __instance)
         {
-            // Find the container where policy rows are held
-            // In the base game, this is usually inside a ScrollView content object
-            GameObject policyPrefab = null;
-            Transform container = null;
+            TryInjectPolicyRow(__instance);
+        }
 
-            // Find an existing policy object to use as a template
-            Policy existingPolicy = GameObject.FindObjectOfType<Policy>();
-            if (existingPolicy != null)
+        private static void TryInjectPolicyRow(Policy template)
+        {
+            if (isInjecting || template == null || (int)template.type == C.PolicyTypeBullying)
             {
-                policyPrefab = existingPolicy.gameObject;
-                container = existingPolicy.transform.parent;
+                return;
             }
 
-            if (policyPrefab != null && container != null)
+            Transform container = template.transform.parent;
+            if (container == null || HasBullyingPolicyRow(container))
             {
-                // Create our new UI row
-                GameObject newPolicyObj = GameObject.Instantiate(policyPrefab, container);
+                return;
+            }
+
+            isInjecting = true;
+            try
+            {
+                GameObject newPolicyObj = Object.Instantiate(template.gameObject, container);
                 newPolicyObj.name = C.PolicyObjName;
+                newPolicyObj.transform.SetAsLastSibling();
 
-                // Configure the Policy component
                 Policy policyScript = newPolicyObj.GetComponent<Policy>();
-                
-                // Force it to point to our custom ID (100)
-                policyScript.type = (policies._type)C.PolicyTypeBullying;
-                
-                // Re-run the Render to apply the localized text
-                policyScript.Render();
+                if (policyScript != null)
+                {
+                    policyScript.type = (policies._type)C.PolicyTypeBullying;
+                }
             }
+            finally
+            {
+                isInjecting = false;
+            }
+        }
+
+        private static bool HasBullyingPolicyRow(Transform container)
+        {
+            Policy[] policyRows = container.GetComponentsInChildren<Policy>(true);
+            for (int i = 0; i < policyRows.Length; i++)
+            {
+                Policy row = policyRows[i];
+                if (row != null && ((int)row.type == C.PolicyTypeBullying || row.gameObject.name == C.PolicyObjName))
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
     }
 }
