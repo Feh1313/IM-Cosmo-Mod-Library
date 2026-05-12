@@ -1,0 +1,6 @@
+POLICY_BULLYING_MAIN_TITLE=Bullying
+POLICY_BULLYING_MAIN_TOOLTIP=Select how you want the agency to handle interpersonal conflicts.
+POLICY_BULLYING_DEFAULT_TITLE=Default
+POLICY_BULLYING_DEFAULT_TOOLTIP=Idols act naturally. Cliques may form and target specific idols.
+POLICY_BULLYING_DISABLED_TITLE=No Bullying
+POLICY_BULLYING_DISABLED_TOOLTIP=Strict zero-tolerance policy. Automatically stops existing harassment and prevents new bullying.

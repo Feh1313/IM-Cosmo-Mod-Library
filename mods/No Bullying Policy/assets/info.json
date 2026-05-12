@@ -1,0 +1,8 @@
+{
+  "Title": "No Bullying Policy",
+  "Description": "Allows you to turn off bullying with a policy change. Use Default or turn off the mod for bullying-related events and achievements.",
+  "Author": "Cosmo",
+  "Version": "1.0.0",
+  "Tags": ["gameplay", "policy"],
+  "HarmonyID": "com.cosmo.nobullyingpolicy"
+}

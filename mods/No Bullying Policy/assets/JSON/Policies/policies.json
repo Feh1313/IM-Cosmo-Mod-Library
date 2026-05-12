@@ -1,0 +1,21 @@
+[
+    {
+        "Type": "100",
+        "Title": "POLICY_BULLYING_MAIN_TITLE",
+        "Tooltip": "POLICY_BULLYING_MAIN_TOOLTIP"
+    },
+    {
+        "Type": "100",
+        "Value": "1001",
+        "Title": "POLICY_BULLYING_DEFAULT_TITLE",
+        "Selected": true,
+        "Tooltip": "POLICY_BULLYING_DEFAULT_TOOLTIP"
+    },
+    {
+        "Type": "100",
+        "Value": "1002",
+        "Title": "POLICY_BULLYING_DISABLED_TITLE",
+        "Cost": 1,
+        "Tooltip": "POLICY_BULLYING_DISABLED_TOOLTIP"
+    }
+]
