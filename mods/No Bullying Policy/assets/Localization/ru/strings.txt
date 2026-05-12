@@ -1,6 +1,6 @@
-POLICY_BULLYING_MAIN_TITLE=Bullying
-POLICY_BULLYING_MAIN_TOOLTIP=Select how you want the agency to handle interpersonal conflicts.
-POLICY_BULLYING_DEFAULT_TITLE=Default
-POLICY_BULLYING_DEFAULT_TOOLTIP=Idols act naturally. Cliques may form and target specific idols.
-POLICY_BULLYING_DISABLED_TITLE=No Bullying
-POLICY_BULLYING_DISABLED_TOOLTIP=Strict zero-tolerance policy. Automatically stops existing harassment and prevents new bullying.
+POLICY_BULLYING_MAIN_TITLE=Буллинг
+POLICY_BULLYING_MAIN_TOOLTIP=Выберите, как агентство будет решать межличностные конфликты.
+POLICY_BULLYING_DEFAULT_TITLE=По умолчанию
+POLICY_BULLYING_DEFAULT_TOOLTIP=Айдолы ведут себя естественно. Могут формироваться группы, нацеленные на определённых айдолов.
+POLICY_BULLYING_DISABLED_TITLE=Без буллинга
+POLICY_BULLYING_DISABLED_TOOLTIP=Строгая политика нулевой терпимости. Автоматически прекращает существующие случаи травли и предотвращает новое издевательство.

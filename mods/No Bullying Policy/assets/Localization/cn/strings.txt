@@ -1,6 +1,6 @@
-POLICY_BULLYING_MAIN_TITLE=Bullying
-POLICY_BULLYING_MAIN_TOOLTIP=Select how you want the agency to handle interpersonal conflicts.
-POLICY_BULLYING_DEFAULT_TITLE=Default
-POLICY_BULLYING_DEFAULT_TOOLTIP=Idols act naturally. Cliques may form and target specific idols.
-POLICY_BULLYING_DISABLED_TITLE=No Bullying
-POLICY_BULLYING_DISABLED_TOOLTIP=Strict zero-tolerance policy. Automatically stops existing harassment and prevents new bullying.
+POLICY_BULLYING_MAIN_TITLE=霸凌
+POLICY_BULLYING_MAIN_TOOLTIP=选择事务所处理人际冲突的方式。
+POLICY_BULLYING_DEFAULT_TITLE=默认
+POLICY_BULLYING_DEFAULT_TOOLTIP=偶像行为自然发展。可能形成小团体并孤立特定偶像。
+POLICY_BULLYING_DISABLED_TITLE=禁止霸凌
+POLICY_BULLYING_DISABLED_TOOLTIP=严格的零容忍政策。自动终止现有霸凌行为，并防止新的霸凌发生。
