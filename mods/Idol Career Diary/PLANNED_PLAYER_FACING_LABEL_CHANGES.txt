@@ -1,0 +1,134 @@
+Player-Facing Timeline Humanization Plan
+
+Summary
+
+- First execution step: replace the existing tracked planning file at [PLANNED_PLAYER_FACING_LABEL_CHANGES.txt](/f:/SteamLibrary/steamapps/workshop/content/821880/Cosmo-Mod-Library/mods/Idol%20Career%20Diary/PLANNED_PLAYER_FACING_LABEL_CHANGES.txt) with this spec before any code changes.
+- Scope is the affected event families and helper methods only. Do not broaden into a whole-mod cleanup.
+- Keep all existing localization key ids and existing payload field ids stable. Change English values and rendering behavior, and add only optional IM Data Core fields.
+- In every edited path: no new inline player-facing strings, no new inline token codes, no new magic numbers. Hoist all new user-facing text into localization, all new field names into constants, and all new parsing indexes/counts/tokens into named constants.
+
+Key Changes
+
+English audit and label cleanup
+
+- Update English values and C# fallback text for the generic labels:
+  - `TextProgramType` -> `Theater Schedule: `
+  - `TextParameterType` -> `Affected Parameter`
+  - `TextResearchType` -> `Research Area`
+  - `TextResetType` -> `Cooldown Reset`
+  - `TextTaskType` -> `Task Category`
+  - `TextSubstoryType` -> `Story Event Type`
+  - `TextFanType` -> `Target Fan Segment`
+  - `TextLoanType` -> `Lender`
+  - `TextLoanDuration` -> `Repayment Term`
+  - `TextCafePriority` -> `Cafe Focus`
+  - `TextStaffPriority` -> `Staff Assignment Priority`
+  - `TextMenuSummary` -> `Weekly Menu`
+  - `TextMentorPairsSummary` -> `Active Mentorships`
+  - `TextTriggeredDialogue` -> `Triggered Story Event`
+- Add explicit `c.CodeLabel.*` entries for all enum/code values emitted by the touched families instead of relying on generic title-casing in normal view. Audit the values produced by theater schedule, loan type/duration, cafe/staff priority, research, parameter type, task type/goal/route, substory type, fan segments, tour country, election broadcast, random event state, and date-result summary codes.
+- Use placeholder-backed localization strings for every synthesized sentence or formatted summary. Do not use concatenation for player-facing text.
+
+Idol Career Diary rendering changes
+
+- Random event conclusion:
+  - Replace the raw `reply_effect_summary` row in normal view with parsed localized effect rows.
+  - Prefer a new structured IM Data Core effect field when present; otherwise parse the legacy packed summary.
+  - Show only confident humanized rows in normal view. Keep raw effect data debug-only.
+- Substory lifecycle:
+  - Resolve the visible subject/title in this order: new optional payload display name if later available, runtime mapping for known story ids, cleaned id as last resort.
+  - Hide `TextSubstoryType` in normal view unless it adds information not already conveyed by the event title.
+  - Show a parent-story row only when a distinct parent can be resolved cleanly.
+- Task lifecycle:
+  - Add a localized task summary built from task category, goal, route, required skill, assigned idol, and agent when present.
+  - Keep supporting rows only when they add information beyond that summary.
+  - Do not show raw task-type or route tokens in normal view.
+- Research events:
+  - Keep the event titles, but rewrite the detail rows so they read as research actions/results, not raw properties.
+  - Use localized rows around research area and affected parameter only.
+- Rival market events:
+  - Parse the legacy trend summaries into localized rising/falling lines per dimension.
+  - Show separate rising and falling rows for genre, lyrics, and choreography.
+  - Include points only when the runtime payload actually provides them.
+  - Do not show the raw compact summaries in normal view.
+- Cafe lifecycle:
+  - Parse `menu_summary` into weekday -> dish output.
+  - Resolve dish titles from ids when possible. If a dish id no longer resolves, fall back to a localized `Dish #{0}` format, not the raw summary blob.
+  - Keep the raw summary debug-only.
+- Mentorship events:
+  - Parse `mentor_pairs_summary` into idol-name pairs.
+  - Show `Active Mentorships` only when it adds context beyond the already-focused mentor/kohai pair.
+  - Omit it on single-pair events when redundant.
+- Bankruptcy and scandal checks:
+  - Replace raw `triggered_dialogue` display with explicit localized outcome text for the known story flags.
+  - Omit the row in normal view when the same outcome is already fully explained by the boolean transition rows.
+  - Keep raw ids debug-only.
+- Player date interaction:
+  - Stop showing raw `date_result_token` in normal view.
+  - Prefer a new normalized summary code from IM Data Core; otherwise derive a summary from the legacy token/null state.
+  - Keep raw tokens debug-only.
+- Tour and election detail:
+  - Add explicit localized code labels for all tour-country and election-broadcast values used by the base game.
+  - Keep `Country` and `Broadcast` labels unless the enum audit proves the label itself is misleading.
+- Generic fallback policy:
+  - `HumanizeCode` remains a last-resort fallback, but none of the touched player-facing event families should depend on it for their primary normal-view text.
+
+Payload and Interface Changes
+
+- Additive IM Data Core payload changes only:
+  - `RandomEventConcludedEventPayload` gains optional `reply_effect_entries`, a structured array of objects with `target`, `parameter`, `formula`, and `special`.
+  - `PlayerDateInteractionPayload` gains optional `date_result_summary_code`.
+- Keep these legacy fields unchanged and still serialized:
+  - `reply_effect_summary`
+  - `date_result_token`
+- Do not add IM Data Core fields for cafe menu, mentor pairs, rival trends, loan enums, task enums, or research enums in this pass. Their existing payloads are already structured enough for Idol Career Diary to parse.
+- Do not rename or remove any existing JSON field name, payload member, or localization key id.
+- Add named constants for every new payload field name, summary code, legacy token code, delimiter, and parser index used in edited code.
+- If IM Data Core needs array serialization support for `reply_effect_entries`, add a reusable helper for object arrays and use it only for this new optional field in this pass.
+- Normalize `date_result_summary_code` as:
+  - `dialogue_followup` when the base-game result token list is `null`
+  - `no_special_result` when the list is empty or all tokens are empty
+  - `public_date` when the effective token is `pub`
+  - `routine_date` when the effective token is `generic`
+  - `multi_result` when multiple non-empty tokens are present
+  - otherwise preserve the single normalized token as the summary code and localize it through `c.CodeLabel.*`
+- Do not add a guessed substory title field in this pass. The base dialogue object does not expose a stable standalone title, so the diary must resolve or map story names at render time and fall back to cleaned ids when no trustworthy title exists.
+
+Test Plan
+
+- Build both mods after implementation:
+  - `dotnet build "mods/IM Data Core/IM Data Core.csproj"`
+  - `dotnet build "mods/Idol Career Diary/Idol Career Diary.csproj"`
+- Backward compatibility:
+  - Verify old IM Data Core sessions/databases that only contain legacy fields still render correctly in the diary.
+  - Verify new additive fields are preferred when present and old fields still work when the new ones are absent.
+- Normal-view acceptance:
+  - No raw packed summaries for random-event effects, cafe menus, mentorship pairs, or rival trends.
+  - No raw substory ids, raw triggered-dialogue ids, or raw date-result tokens in normal player view.
+  - No touched family should depend on generic title-casing for its main visible value.
+- Scenario coverage:
+  - Random event conclusion with resource and non-resource effects.
+  - Substory started, delayed, completed.
+  - Task completed, failed, closed with and without custom task ids.
+  - Research assigned, points purchased, parameter leveled.
+  - Rival trends updated and monthly recalculated.
+  - Cafe created/destroyed and cafe daily result.
+  - Mentorship started, ended, weekly tick.
+  - Bankruptcy check and scandal check with known story-flag outcomes.
+  - Player date interaction for `generic`, `pub`, and `null/dialogue_followup`.
+  - Tour country result and at least one election event with broadcast value.
+- Hygiene checks:
+  - Every new player-facing string is localized.
+  - Every new summary format uses placeholders.
+  - Every new numeric comparison, count, or parser offset in edited code is a named constant.
+  - Edited methods do not introduce new loose literals.
+- Debug regression:
+  - Technical metadata still works when explicitly enabled.
+  - Raw payload visibility remains available in debug mode even when normal view is humanized.
+
+Assumptions
+
+- Use the existing tracked planning file as the text doc to update first once execution is allowed.
+- The strict no-loose-literals/no-magic-numbers rule applies to the touched event families and edited helpers, not a whole-mod sweep.
+- Normal player view should prefer omission over raw technical output when a value cannot be humanized confidently.
+- English is the wording source-of-truth for this pass. Non-English locale updates can follow separately unless a missing code label would break display behavior.

@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <ModName>Mod Buttons</ModName>
+    <DeployFolderName>Mod Buttons</DeployFolderName>
+    <RootNamespace>Mod Buttons</RootNamespace>
+    <AssemblyName>com.cosmo.modbuttons</AssemblyName>
+    <Version>1.0.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="src\ModButtons.cs" />
+  </ItemGroup>
+</Project>
