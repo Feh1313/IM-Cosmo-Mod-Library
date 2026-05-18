@@ -195,10 +195,11 @@ namespace ModButtons
         // --- CONSTANTS ---
         private const string SettingsContainerPath = "ScrollRect/Container";
         private const string HubButtonObjName = "ModButtonsHubButton";
-        private const string HubButtonLabel = "Mod Actions";
+        private const string HubButtonLabel = "Action Hub";
         private const string TargetModMenuButton = "ModMenuButton";
         private const string FallbackSettingsName = "Settings";
         private const string FallbackGraphicsName = "Graphics";
+        private const string FallbackMainMenuName = "Main Menu";
         
         private const string PopupObjName = "ModButtonsPopup";
         private const string UIPanelName = "Panel";
@@ -234,11 +235,13 @@ namespace ModButtons
 
         private const float GridCellSpacing = 10f;
         private const float VerticalLayoutSpacing = 15f;
-        private const float DividerHeight = 3f;
+        private const float DividerHeight = 1f;
         private const float FallbackBtnMinWidth = 200f;
         private const float FallbackBtnMinHeight = 40f;
         private const int IconButtonsPerRow = 6;
         private const int FallbackTextButtonsPerRow = 3;
+        private static readonly Color DividerColor = new Color(0.7215686f, 0.6784314f, 0.6509804f, 1f);
+        private static readonly Color GeneratedButtonColor = new Color(0.42f, 0.44f, 0.78f, 1f);
 
         public static bool TryInstallActionHubButton()
         {
@@ -249,37 +252,200 @@ namespace ModButtons
             Tabs_Manager._tab settingsTab = tabsManager?.GetTab(Tabs_Manager._tab._type.settings);
             if (settingsTab?.Tab == null) return false;
 
-            Transform settingsContainer = settingsTab.Tab.transform.Find(SettingsContainerPath);
+            Transform settingsRoot = settingsTab.Tab.transform;
+            Transform settingsContainer = FindSettingsContainer(settingsRoot);
             if (settingsContainer == null) return false;
 
-            if (settingsContainer.Find(HubButtonObjName) != null) return true;
+            Transform existingButton = FindNamedChild(settingsRoot, HubButtonObjName);
+            if (existingButton != null)
+            {
+                ConfigureHubButton(existingButton.gameObject);
+                PositionHubButton(existingButton, settingsRoot, settingsContainer);
+                return true;
+            }
 
-            GameObject templateButton = settingsContainer.GetComponentsInChildren<Button>(true).FirstOrDefault()?.gameObject;
+            GameObject templateButton = FindButtonTemplate(settingsContainer);
+            if (templateButton == null)
+            {
+                templateButton = FindButtonTemplate(settingsRoot);
+                if (templateButton == null || templateButton.transform.parent == null) return false;
+                settingsContainer = templateButton.transform.parent;
+            }
             if (templateButton == null) return false;
 
             GameObject modActionButton = CloneMainButton(templateButton, settingsContainer, HubButtonObjName, HubButtonLabel);
+            if (modActionButton == null) return false;
 
-            Transform modMenusButton = settingsContainer.Find(TargetModMenuButton); 
-            
-            if (modMenusButton != null)
+            ConfigureHubButton(modActionButton);
+            PositionHubButton(modActionButton.transform, settingsRoot, settingsContainer);
+            return true;
+        }
+
+        private static Transform FindSettingsContainer(Transform settingsRoot)
+        {
+            if (settingsRoot == null) return null;
+
+            Transform container = settingsRoot.Find(SettingsContainerPath);
+            if (container != null) return container;
+
+            Transform[] descendants = settingsRoot.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < descendants.Length; i++)
             {
-                modActionButton.transform.SetSiblingIndex(modMenusButton.GetSiblingIndex() + 1);
+                Transform candidate = descendants[i];
+                if (candidate == null || !string.Equals(candidate.name, "Container", StringComparison.Ordinal)) continue;
+                if (candidate.GetComponent<VerticalLayoutGroup>() != null || candidate.GetComponent<GridLayoutGroup>() != null)
+                {
+                    return candidate;
+                }
+            }
+
+            Button[] buttons = settingsRoot.GetComponentsInChildren<Button>(true);
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                Button candidate = buttons[i];
+                if (candidate == null || candidate.transform.parent == null) continue;
+                if (FindText(candidate.transform) == null) continue;
+
+                Transform parent = candidate.transform.parent;
+                if (parent.GetComponent<LayoutGroup>() != null)
+                {
+                    return parent;
+                }
+            }
+
+            return null;
+        }
+
+        private static Transform FindNamedChild(Transform root, string childName)
+        {
+            if (root == null || string.IsNullOrEmpty(childName)) return null;
+
+            Transform[] descendants = root.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < descendants.Length; i++)
+            {
+                Transform candidate = descendants[i];
+                if (candidate != null && string.Equals(candidate.name, childName, StringComparison.Ordinal))
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
+        }
+
+        private static GameObject FindButtonTemplate(Transform settingsContainer)
+        {
+            if (settingsContainer == null) return null;
+
+            foreach (Transform child in settingsContainer)
+            {
+                if (child != null && ButtonMatches(child, FallbackMainMenuName))
+                {
+                    return child.gameObject;
+                }
+            }
+
+            Button[] buttons = settingsContainer.GetComponentsInChildren<Button>(true);
+            for (int i = 0; i < buttons.Length; i++)
+            {
+                Button candidate = buttons[i];
+                if (candidate == null || candidate.gameObject == null) continue;
+                if (candidate.transform.name == HubButtonObjName) continue;
+                if (FindText(candidate.transform) != null)
+                {
+                    return candidate.gameObject;
+                }
+            }
+
+            return null;
+        }
+
+        private static void ConfigureHubButton(GameObject hubButton)
+        {
+            if (hubButton == null) return;
+
+            hubButton.name = HubButtonObjName;
+            hubButton.SetActive(true);
+
+            TextMeshProUGUI text = hubButton.GetComponentsInChildren<TextMeshProUGUI>(true).FirstOrDefault();
+            if (text != null)
+            {
+                Lang_Button languageBinding = text.GetComponent<Lang_Button>();
+                if (languageBinding != null)
+                {
+                    languageBinding.Constant = HubButtonLabel;
+                }
+
+                text.text = HubButtonLabel;
+            }
+
+            Button btn = hubButton.GetComponent<Button>();
+            if (btn == null) return;
+
+            btn.onClick = new Button.ButtonClickedEvent();
+            btn.onClick.AddListener(() =>
+            {
+                GenerateButtonsPopup();
+                PopupManager.OpenPopup((PopupManager._type)CustomPopupID);
+            });
+        }
+
+        private static void PositionHubButton(Transform hubButton, Transform settingsRoot, Transform settingsContainer)
+        {
+            if (hubButton == null) return;
+
+            Transform modMenusButton = FindNamedChild(settingsRoot, TargetModMenuButton);
+            Transform parent = settingsContainer;
+            if (modMenusButton != null && modMenusButton.parent != null)
+            {
+                parent = modMenusButton.parent;
+            }
+
+            if (parent == null) return;
+            if (hubButton.parent != parent)
+            {
+                hubButton.SetParent(parent, false);
+            }
+
+            if (modMenusButton != null && modMenusButton.parent == parent)
+            {
+                hubButton.SetSiblingIndex(Mathf.Min(modMenusButton.GetSiblingIndex() + 1, parent.childCount - 1));
             }
             else
             {
-                Transform standardSettingsBtn = settingsContainer.Cast<Transform>().FirstOrDefault(t => t.name.Contains(FallbackSettingsName) || t.name.Contains(FallbackGraphicsName));
+                Transform standardSettingsBtn = parent.Cast<Transform>().FirstOrDefault(t => ButtonMatches(t, FallbackSettingsName) || ButtonMatches(t, FallbackGraphicsName));
                 if (standardSettingsBtn != null)
                 {
-                    modActionButton.transform.SetSiblingIndex(standardSettingsBtn.GetSiblingIndex() + 1);
+                    hubButton.SetSiblingIndex(Mathf.Min(standardSettingsBtn.GetSiblingIndex() + 1, parent.childCount - 1));
                 }
                 else
                 {
-                    modActionButton.transform.SetSiblingIndex(0); 
+                    hubButton.SetSiblingIndex(Mathf.Max(0, parent.childCount - 2));
                 }
             }
 
-            LayoutRebuilder.ForceRebuildLayoutImmediate(settingsContainer as RectTransform);
-            return true;
+            RectTransform rect = parent as RectTransform;
+            if (rect != null)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(rect);
+            }
+
+            Canvas.ForceUpdateCanvases();
+        }
+
+        private static bool ButtonMatches(Transform candidate, string text)
+        {
+            if (candidate == null || string.IsNullOrEmpty(text)) return false;
+            if (candidate.name.IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0) return true;
+
+            TextMeshProUGUI label = FindText(candidate);
+            return label != null && !string.IsNullOrEmpty(label.text) && label.text.IndexOf(text, StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+
+        private static TextMeshProUGUI FindText(Transform root)
+        {
+            if (root == null) return null;
+            return root.GetComponentsInChildren<TextMeshProUGUI>(true).FirstOrDefault();
         }
 
         public static GameObject GenerateButtonsPopup()
@@ -383,8 +549,11 @@ namespace ModButtons
                 gridLayout.preferredWidth = gridWidth;
                 gridLayout.preferredHeight = gridHeight;
 
-                foreach (JSONNode item in jsonArray)
+                for (int i = 0; i < jsonArray.Count; i++)
                 {
+                    JSONNode item = jsonArray[i];
+                    if (item == null) continue;
+
                     string fallbackLabel = item[JsonKeyLabel];
                     string codeLabel = item[JsonKeyCodeLabel];
                     string iconName = item[JsonKeyIcon]; 
@@ -402,9 +571,12 @@ namespace ModButtons
 
                 GameObject divider = new GameObject(UIDividerName, typeof(RectTransform), typeof(Image));
                 divider.transform.SetParent(verticalContainer, false);
-                divider.GetComponent<Image>().color = new Color(0, 0, 0, 0.5f);
+                divider.GetComponent<Image>().color = DividerColor;
                 RectTransform divRect = divider.GetComponent<RectTransform>();
                 divRect.sizeDelta = new Vector2(0, DividerHeight);
+                LayoutElement divLayout = divider.AddComponent<LayoutElement>();
+                divLayout.minHeight = DividerHeight;
+                divLayout.preferredHeight = DividerHeight;
             }
         }
 
@@ -475,6 +647,7 @@ namespace ModButtons
                 if (templateBtn != null)
                 {
                     btnObj = CloneMainButton(templateBtn, cellObj.transform, PrefixButton + label, label);
+                    btnObj.SetActive(true);
                     
                     RectTransform rect = btnObj.GetComponent<RectTransform>();
                     rect.anchorMin = new Vector2(0.5f, 0.5f);
@@ -488,7 +661,10 @@ namespace ModButtons
                     layoutElement.minHeight = FallbackBtnMinHeight;
                     layoutElement.ignoreLayout = true; // Prevents grid from crushing the fallback
                 }
-                else return;
+                else
+                {
+                    btnObj = CreateGeneratedTextButton(cellObj.transform, PrefixButton + label, label);
+                }
             }
 
             Button btn = btnObj.GetComponent<Button>();
@@ -512,6 +688,39 @@ namespace ModButtons
                     Debug.LogError($"{LogErrorPrefix} {className}.{methodName}: {e.Message}");
                 }
             });
+        }
+
+        private static GameObject CreateGeneratedTextButton(Transform parent, string name, string label)
+        {
+            GameObject btnObj = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button));
+            btnObj.transform.SetParent(parent, false);
+
+            RectTransform rect = btnObj.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = Vector2.zero;
+            rect.sizeDelta = new Vector2(FallbackBtnMinWidth, FallbackBtnMinHeight);
+
+            Image image = btnObj.GetComponent<Image>();
+            image.color = GeneratedButtonColor;
+
+            GameObject textObj = new GameObject("Text", typeof(RectTransform), typeof(TextMeshProUGUI));
+            textObj.transform.SetParent(btnObj.transform, false);
+
+            RectTransform textRect = textObj.GetComponent<RectTransform>();
+            textRect.anchorMin = Vector2.zero;
+            textRect.anchorMax = Vector2.one;
+            textRect.offsetMin = Vector2.zero;
+            textRect.offsetMax = Vector2.zero;
+
+            TextMeshProUGUI text = textObj.GetComponent<TextMeshProUGUI>();
+            text.text = label;
+            text.fontSize = 20f;
+            text.alignment = TextAlignmentOptions.Center;
+            text.color = Color.white;
+
+            return btnObj;
         }
 
         private static void CloseActionPopup()
