@@ -237,6 +237,8 @@ namespace ModButtons
         private const float DividerHeight = 3f;
         private const float FallbackBtnMinWidth = 200f;
         private const float FallbackBtnMinHeight = 40f;
+        private const int IconButtonsPerRow = 6;
+        private const int FallbackTextButtonsPerRow = 3;
 
         public static bool TryInstallActionHubButton()
         {
@@ -353,14 +355,33 @@ namespace ModButtons
                 titleText.alignment = TextAlignmentOptions.Center;
                 titleText.color = Color.black;
 
-                GameObject gridContainer = new GameObject(PrefixGrid + mod.Title, typeof(RectTransform), typeof(GridLayoutGroup));
+                bool hasFallbackTextButtons = HasFallbackTextButtons(mod.Path, jsonArray);
+                int columnCount = Math.Min(hasFallbackTextButtons ? FallbackTextButtonsPerRow : IconButtonsPerRow, Math.Max(1, jsonArray.Count));
+                float cellWidth = hasFallbackTextButtons ? FallbackBtnMinWidth : MaxCellSize;
+                float cellHeight = MaxCellSize;
+                int rowCount = Mathf.CeilToInt((float)jsonArray.Count / (float)columnCount);
+                float gridWidth = columnCount * cellWidth + Math.Max(0, columnCount - 1) * GridCellSpacing;
+                float gridHeight = rowCount * cellHeight + Math.Max(0, rowCount - 1) * GridCellSpacing;
+
+                GameObject gridContainer = new GameObject(PrefixGrid + mod.Title, typeof(RectTransform), typeof(GridLayoutGroup), typeof(LayoutElement));
                 gridContainer.transform.SetParent(verticalContainer, false);
+
+                RectTransform gridRect = gridContainer.GetComponent<RectTransform>();
+                gridRect.sizeDelta = new Vector2(gridWidth, gridHeight);
                 
                 GridLayoutGroup grid = gridContainer.GetComponent<GridLayoutGroup>();
-                grid.cellSize = new Vector2(MaxCellSize, MaxCellSize); // Invisible cell container limits
+                grid.cellSize = new Vector2(cellWidth, cellHeight);
                 grid.spacing = new Vector2(GridCellSpacing, GridCellSpacing);
                 grid.startAxis = GridLayoutGroup.Axis.Horizontal;
                 grid.childAlignment = TextAnchor.UpperCenter;
+                grid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+                grid.constraintCount = columnCount;
+
+                LayoutElement gridLayout = gridContainer.GetComponent<LayoutElement>();
+                gridLayout.minWidth = gridWidth;
+                gridLayout.minHeight = gridHeight;
+                gridLayout.preferredWidth = gridWidth;
+                gridLayout.preferredHeight = gridHeight;
 
                 foreach (JSONNode item in jsonArray)
                 {
@@ -385,6 +406,20 @@ namespace ModButtons
                 RectTransform divRect = divider.GetComponent<RectTransform>();
                 divRect.sizeDelta = new Vector2(0, DividerHeight);
             }
+        }
+
+        private static bool HasFallbackTextButtons(string modPath, JSONArray jsonArray)
+        {
+            for (int i = 0; i < jsonArray.Count; i++)
+            {
+                string iconName = jsonArray[i][JsonKeyIcon];
+                if (string.IsNullOrEmpty(iconName)) return true;
+
+                string iconPath = Path.Combine(modPath, TargetDirectory, iconName);
+                if (!File.Exists(iconPath)) return true;
+            }
+
+            return false;
         }
 
         private static void CreateActionButton(Transform parentGrid, GameObject templateBtn, string label, string iconPath, string asmName, string className, string methodName)
@@ -446,8 +481,9 @@ namespace ModButtons
                     rect.anchorMax = new Vector2(0.5f, 0.5f);
                     rect.pivot = new Vector2(0.5f, 0.5f);
                     rect.anchoredPosition = Vector2.zero;
+                    rect.sizeDelta = new Vector2(FallbackBtnMinWidth, FallbackBtnMinHeight);
                     
-                    LayoutElement layoutElement = btnObj.AddComponent<LayoutElement>();
+                    LayoutElement layoutElement = btnObj.GetComponent<LayoutElement>() ?? btnObj.AddComponent<LayoutElement>();
                     layoutElement.minWidth = FallbackBtnMinWidth;
                     layoutElement.minHeight = FallbackBtnMinHeight;
                     layoutElement.ignoreLayout = true; // Prevents grid from crushing the fallback
@@ -466,13 +502,25 @@ namespace ModButtons
                     Type targetType = targetAsm.GetType(className);
                     if (targetType == null) return;
                     MethodInfo method = targetType.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static);
-                    method?.Invoke(null, null);
+                    if (method == null) return;
+
+                    CloseActionPopup();
+                    method.Invoke(null, null);
                 }
                 catch (Exception e)
                 {
                     Debug.LogError($"{LogErrorPrefix} {className}.{methodName}: {e.Message}");
                 }
             });
+        }
+
+        private static void CloseActionPopup()
+        {
+            try
+            {
+                PopupManager.Close_();
+            }
+            catch { }
         }
 
         private static GameObject CloneMainButton(GameObject oldButton, Transform parent, string name, string label)
