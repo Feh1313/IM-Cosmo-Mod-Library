@@ -239,7 +239,8 @@ namespace ModButtons
         private const float GridCellSpacing = 10f;
         private const float VerticalLayoutSpacing = 15f;
         private const float DividerHeight = 1f;
-        private const float DividerWidth = 738f;
+        private const float DividerWidth = 420f;
+        private const float DividerHorizontalPadding = 24f;
         private const float FallbackBtnMinWidth = 200f;
         private const float FallbackBtnMinHeight = 40f;
         private const int IconButtonsPerRow = 6;
@@ -524,8 +525,8 @@ namespace ModButtons
             VerticalLayoutGroup vLayout = vContainer.GetComponent<VerticalLayoutGroup>();
             vLayout.spacing = VerticalLayoutSpacing;
             vLayout.childAlignment = TextAnchor.UpperCenter;
-            vLayout.childControlHeight = false; 
-            
+            vLayout.childControlHeight = false;
+
             vContainer.GetComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
             PopulateCustomButtons(vContainer.transform, actionTemplateButton);
@@ -540,6 +541,7 @@ namespace ModButtons
         private static void PopulateCustomButtons(Transform verticalContainer, GameObject templateButton)
         {
             string relativePath = Path.Combine(TargetDirectory, JsonFileName);
+            float dividerWidth = GetDividerWidth(verticalContainer);
 
             foreach (Mods._mod mod in Mods._Mods)
             {
@@ -619,18 +621,45 @@ namespace ModButtons
                     CreateActionButton(gridContainer.transform, templateButton, localizedLabel, localizedTooltip, iconPath, targetAssembly, targetClass, targetMethod);
                 }
 
-                GameObject divider = new GameObject(UIDividerName, typeof(RectTransform), typeof(Image));
+                GameObject divider = new GameObject(UIDividerName, typeof(RectTransform), typeof(LayoutElement));
                 divider.transform.SetParent(verticalContainer, false);
-                divider.GetComponent<Image>().color = DividerColor;
 
                 RectTransform divRect = divider.GetComponent<RectTransform>();
-                divRect.sizeDelta = new Vector2(DividerWidth, DividerHeight);
+                divRect.sizeDelta = new Vector2(0f, DividerHeight);
 
-                LayoutElement divLayout = divider.AddComponent<LayoutElement>();
+                LayoutElement divLayout = divider.GetComponent<LayoutElement>();
                 divLayout.minHeight = DividerHeight;
                 divLayout.preferredHeight = DividerHeight;
-                divLayout.preferredWidth = DividerWidth;
+                divLayout.preferredWidth = dividerWidth;
+
+                GameObject dividerLine = new GameObject("Line", typeof(RectTransform), typeof(Image));
+                dividerLine.transform.SetParent(divider.transform, false);
+                dividerLine.GetComponent<Image>().color = DividerColor;
+
+                RectTransform lineRect = dividerLine.GetComponent<RectTransform>();
+                lineRect.anchorMin = new Vector2(0.5f, 0.5f);
+                lineRect.anchorMax = new Vector2(0.5f, 0.5f);
+                lineRect.pivot = new Vector2(0.5f, 0.5f);
+                lineRect.anchoredPosition = Vector2.zero;
+                lineRect.SetSizeWithCurrentAnchors(RectTransform.Axis.Horizontal, dividerWidth);
+                lineRect.SetSizeWithCurrentAnchors(RectTransform.Axis.Vertical, DividerHeight);
             }
+        }
+
+        private static float GetDividerWidth(Transform verticalContainer)
+        {
+            float width = DividerWidth;
+            RectTransform panelRect = verticalContainer?.parent as RectTransform;
+            if (panelRect != null)
+            {
+                float availableWidth = panelRect.rect.width - DividerHorizontalPadding * 2f;
+                if (availableWidth > 0f)
+                {
+                    width = Mathf.Min(width, availableWidth);
+                }
+            }
+
+            return Mathf.Max(0f, width);
         }
 
         private static bool HasFallbackTextButtons(string modPath, JSONArray jsonArray)
@@ -669,6 +698,7 @@ namespace ModButtons
 
             // Apply purple tint
             Image bgImage = btnObj.GetComponent<Image>();
+            if (bgImage != null) bgImage.raycastTarget = true;
             //if (bgImage != null) bgImage.color = GeneratedButtonColor;
 
             Button btn = btnObj.GetComponent<Button>();
@@ -681,6 +711,7 @@ namespace ModButtons
                 if (btnDef.OnHover == null) btnDef.OnHover = new ButtonDefault.MyEventType();
                 btnDef.DefaultTooltip = tooltip;
                 btnDef.SetTooltip(tooltip);
+                btnDef.Activate(true, false);
             }
 
             TextMeshProUGUI textComp = btnObj.GetComponentsInChildren<TextMeshProUGUI>(true).FirstOrDefault();
@@ -736,6 +767,8 @@ namespace ModButtons
             layoutElement.minHeight = hasIcon ? MinButtonSize : FallbackBtnMinHeight;
             layoutElement.ignoreLayout = true;
 
+            DisableChildRaycastTargets(btnObj);
+
             btn?.onClick.AddListener(() =>
             {
                 try
@@ -755,6 +788,19 @@ namespace ModButtons
                     Debug.LogError($"{LogErrorPrefix} {className}.{methodName}: {e.Message}");
                 }
             });
+        }
+
+        private static void DisableChildRaycastTargets(GameObject button)
+        {
+            if (button == null) return;
+
+            Graphic[] graphics = button.GetComponentsInChildren<Graphic>(true);
+            for (int i = 0; i < graphics.Length; i++)
+            {
+                Graphic graphic = graphics[i];
+                if (graphic == null || graphic.gameObject == button) continue;
+                graphic.raycastTarget = false;
+            }
         }
 
         private static void ResetActionButtonLanguageBindings(GameObject root, string label)
