@@ -1,0 +1,5 @@
+﻿# Localization file
+# Base language (English): Localization/en/strings.txt
+# Per-language overrides: Localization/<lang>/strings.txt (jp, cn, ru, ptbr, ...)
+# Format: key=value
+

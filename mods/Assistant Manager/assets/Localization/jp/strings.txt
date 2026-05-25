@@ -1,0 +1,4 @@
+# Machine-translated localization for Graduation Details.
+# Generated from the English source and may contain errors or awkward phrasing.
+# Format: key=value
+
