@@ -213,6 +213,8 @@ namespace ModButtons
         
         private const string JsonKeyLabel = "label";
         private const string JsonKeyCodeLabel = "codeLabel"; 
+        private const string JsonKeyTooltip = "tooltip";
+        private const string JsonKeyCodeTooltip = "codeTooltip";
         private const string JsonKeyIcon = "icon";
         private const string JsonKeyAssembly = "assembly";
         private const string JsonKeyClass = "class";
@@ -225,6 +227,7 @@ namespace ModButtons
         private const string PrefixButton = "Btn_";
         private const string DotSeparator = ".";
         private const string LogErrorPrefix = "[ModButtons] Execution failed:";
+        private static readonly string[] PreferredButtonTemplateNames = { FallbackSettingsName, FallbackGraphicsName, FallbackMainMenuName };
         
         private const int CustomPopupID = 998;
         private const int TitleFontSize = 24;
@@ -236,12 +239,16 @@ namespace ModButtons
         private const float GridCellSpacing = 10f;
         private const float VerticalLayoutSpacing = 15f;
         private const float DividerHeight = 1f;
+        private const float DividerWidth = 738f;
         private const float FallbackBtnMinWidth = 200f;
         private const float FallbackBtnMinHeight = 40f;
         private const int IconButtonsPerRow = 6;
         private const int FallbackTextButtonsPerRow = 3;
+
         private static readonly Color DividerColor = new Color(0.7215686f, 0.6784314f, 0.6509804f, 1f);
-        private static readonly Color GeneratedButtonColor = new Color(0.42f, 0.44f, 0.78f, 1f);
+
+        // This is the purple color assigned to the action buttons
+        private static readonly Color GeneratedButtonColor = new Color(0.4078f, 0.4118f, 0.6706f, 1f);
 
         public static bool TryInstallActionHubButton()
         {
@@ -337,11 +344,14 @@ namespace ModButtons
         {
             if (settingsContainer == null) return null;
 
-            foreach (Transform child in settingsContainer)
+            for (int i = 0; i < PreferredButtonTemplateNames.Length; i++)
             {
-                if (child != null && ButtonMatches(child, FallbackMainMenuName))
+                foreach (Transform child in settingsContainer)
                 {
-                    return child.gameObject;
+                    if (child != null && child.name != HubButtonObjName && ButtonMatches(child, PreferredButtonTemplateNames[i]))
+                    {
+                        return child.gameObject;
+                    }
                 }
             }
 
@@ -350,7 +360,8 @@ namespace ModButtons
             {
                 Button candidate = buttons[i];
                 if (candidate == null || candidate.gameObject == null) continue;
-                if (candidate.transform.name == HubButtonObjName) continue;
+                if (IsNamedOrChildOf(candidate.transform, HubButtonObjName)) continue;
+                if (IsNamedOrChildOf(candidate.transform, UICancelButtonName)) continue;
                 if (FindText(candidate.transform) != null)
                 {
                     return candidate.gameObject;
@@ -358,6 +369,35 @@ namespace ModButtons
             }
 
             return null;
+        }
+
+        private static GameObject FindActionButtonTemplate()
+        {
+            mainScript main = Camera.main?.GetComponent<mainScript>();
+            Tabs_Manager tabsManager = main?.Data?.GetComponent<Tabs_Manager>();
+            Tabs_Manager._tab settingsTab = tabsManager?.GetTab(Tabs_Manager._tab._type.settings);
+            Transform settingsRoot = settingsTab?.Tab?.transform;
+            if (settingsRoot == null) return null;
+
+            Transform settingsContainer = FindSettingsContainer(settingsRoot);
+            GameObject templateButton = FindButtonTemplate(settingsContainer);
+            if (templateButton != null) return templateButton;
+
+            return FindButtonTemplate(settingsRoot);
+        }
+
+        private static bool IsNamedOrChildOf(Transform candidate, string name)
+        {
+            if (candidate == null || string.IsNullOrEmpty(name)) return false;
+
+            Transform current = candidate;
+            while (current != null)
+            {
+                if (string.Equals(current.name, name, StringComparison.Ordinal)) return true;
+                current = current.parent;
+            }
+
+            return false;
         }
 
         private static void ConfigureHubButton(GameObject hubButton)
@@ -463,7 +503,8 @@ namespace ModButtons
             Transform settingsContainer = panel.Find(UISettingsContainerName);
             if (settingsContainer != null) UnityEngine.Object.DestroyImmediate(settingsContainer.gameObject);
             
-            GameObject cancelButton = panel.Find(UICancelButtonName)?.gameObject;
+            GameObject cancelButton = modButtonsObj.transform.Find(UICancelButtonName)?.gameObject;
+            GameObject actionTemplateButton = FindActionButtonTemplate();
             if (cancelButton != null)
             {
                 Button btn = cancelButton.GetComponent<Button>();
@@ -475,9 +516,10 @@ namespace ModButtons
             vContainer.transform.SetParent(panel, false);
             
             RectTransform rect = vContainer.GetComponent<RectTransform>();
-            rect.anchorMin = new Vector2(0.1f, 0.2f);
-            rect.anchorMax = new Vector2(0.9f, 0.8f);
-            rect.offsetMin = rect.offsetMax = Vector2.zero;
+            rect.anchorMin = new Vector2(0.1f, 1f);
+            rect.anchorMax = new Vector2(0.9f, 1f);
+            rect.pivot = new Vector2(0.5f, 1f);
+            rect.anchoredPosition = new Vector2(0, -30f);
 
             VerticalLayoutGroup vLayout = vContainer.GetComponent<VerticalLayoutGroup>();
             vLayout.spacing = VerticalLayoutSpacing;
@@ -486,7 +528,7 @@ namespace ModButtons
             
             vContainer.GetComponent<ContentSizeFitter>().verticalFit = ContentSizeFitter.FitMode.PreferredSize;
 
-            PopulateCustomButtons(vContainer.transform, panel);
+            PopulateCustomButtons(vContainer.transform, actionTemplateButton);
 
             PopupManager._popup newPopup = new() { type = (PopupManager._type)CustomPopupID, obj = modButtonsObj, BGBlur = true, BGDarken = true };
             Array.Resize(ref pm.popups, pm.popups.Length + 1);
@@ -495,10 +537,9 @@ namespace ModButtons
             return modButtonsObj;
         }
 
-        private static void PopulateCustomButtons(Transform verticalContainer, Transform templateSource)
+        private static void PopulateCustomButtons(Transform verticalContainer, GameObject templateButton)
         {
             string relativePath = Path.Combine(TargetDirectory, JsonFileName);
-            GameObject templateButton = templateSource.Find(UICancelButtonName)?.gameObject;
 
             foreach (Mods._mod mod in Mods._Mods)
             {
@@ -524,7 +565,7 @@ namespace ModButtons
                 bool hasFallbackTextButtons = HasFallbackTextButtons(mod.Path, jsonArray);
                 int columnCount = Math.Min(hasFallbackTextButtons ? FallbackTextButtonsPerRow : IconButtonsPerRow, Math.Max(1, jsonArray.Count));
                 float cellWidth = hasFallbackTextButtons ? FallbackBtnMinWidth : MaxCellSize;
-                float cellHeight = MaxCellSize;
+                float cellHeight = hasFallbackTextButtons ? FallbackBtnMinHeight : MaxCellSize;
                 int rowCount = Mathf.CeilToInt((float)jsonArray.Count / (float)columnCount);
                 float gridWidth = columnCount * cellWidth + Math.Max(0, columnCount - 1) * GridCellSpacing;
                 float gridHeight = rowCount * cellHeight + Math.Max(0, rowCount - 1) * GridCellSpacing;
@@ -556,27 +597,39 @@ namespace ModButtons
 
                     string fallbackLabel = item[JsonKeyLabel];
                     string codeLabel = item[JsonKeyCodeLabel];
+
+                    // Added independent Tooltip parsing
+                    string fallbackTooltip = item[JsonKeyTooltip];
+                    string codeTooltip = item[JsonKeyCodeTooltip];
+
                     string iconName = item[JsonKeyIcon]; 
                     string targetAssembly = item[JsonKeyAssembly]; 
                     string targetClass = item[JsonKeyClass]; 
                     string targetMethod = item[JsonKeyMethod]; 
 
+                    // Ensure fallbacks are properly populated
                     if (string.IsNullOrEmpty(codeLabel)) codeLabel = targetClass + DotSeparator + targetMethod;
+                    if (string.IsNullOrEmpty(fallbackTooltip)) fallbackTooltip = fallbackLabel;
+                    if (string.IsNullOrEmpty(codeTooltip)) codeTooltip = codeLabel + "_tooltip";
                     
                     string localizedLabel = ModButtonsLocalization.Get(mod.Path, codeLabel, fallbackLabel);
+                    string localizedTooltip = ModButtonsLocalization.Get(mod.Path, codeTooltip, fallbackTooltip);
                     string iconPath = string.IsNullOrEmpty(iconName) ? string.Empty : Path.Combine(mod.Path, TargetDirectory, iconName);
                     
-                    CreateActionButton(gridContainer.transform, templateButton, localizedLabel, iconPath, targetAssembly, targetClass, targetMethod);
+                    CreateActionButton(gridContainer.transform, templateButton, localizedLabel, localizedTooltip, iconPath, targetAssembly, targetClass, targetMethod);
                 }
 
                 GameObject divider = new GameObject(UIDividerName, typeof(RectTransform), typeof(Image));
                 divider.transform.SetParent(verticalContainer, false);
                 divider.GetComponent<Image>().color = DividerColor;
+
                 RectTransform divRect = divider.GetComponent<RectTransform>();
-                divRect.sizeDelta = new Vector2(0, DividerHeight);
+                divRect.sizeDelta = new Vector2(DividerWidth, DividerHeight);
+
                 LayoutElement divLayout = divider.AddComponent<LayoutElement>();
                 divLayout.minHeight = DividerHeight;
                 divLayout.preferredHeight = DividerHeight;
+                divLayout.preferredWidth = DividerWidth;
             }
         }
 
@@ -594,30 +647,62 @@ namespace ModButtons
             return false;
         }
 
-        private static void CreateActionButton(Transform parentGrid, GameObject templateBtn, string label, string iconPath, string asmName, string className, string methodName)
+        private static void CreateActionButton(Transform parentGrid, GameObject templateBtn, string label, string tooltip, string iconPath, string asmName, string className, string methodName)
         {
-            GameObject btnObj;
             bool hasIcon = !string.IsNullOrEmpty(iconPath) && File.Exists(iconPath);
+
+            GameObject cellObj = new GameObject(PrefixCell + label, typeof(RectTransform));
+            cellObj.transform.SetParent(parentGrid, false);
+
+            GameObject btnObj = templateBtn != null
+                ? UnityEngine.Object.Instantiate(templateBtn, cellObj.transform)
+                : new GameObject(PrefixButton + label, typeof(RectTransform), typeof(Image), typeof(Button), typeof(ButtonDefault));
+            if (templateBtn == null) btnObj.transform.SetParent(cellObj.transform, false);
+            btnObj.name = PrefixButton + label;
+            btnObj.SetActive(true);
+
+            RectTransform rect = btnObj.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0.5f, 0.5f);
+            rect.anchorMax = new Vector2(0.5f, 0.5f);
+            rect.pivot = new Vector2(0.5f, 0.5f);
+            rect.anchoredPosition = Vector2.zero;
+
+            // Apply purple tint
+            Image bgImage = btnObj.GetComponent<Image>();
+            //if (bgImage != null) bgImage.color = GeneratedButtonColor;
+
+            Button btn = btnObj.GetComponent<Button>();
+            if (btn != null) btn.onClick = new Button.ButtonClickedEvent();
+
+            // Set Independent Tooltip
+            ButtonDefault btnDef = btnObj.GetComponent<ButtonDefault>();
+            if (btnDef != null)
+            {
+                if (btnDef.OnHover == null) btnDef.OnHover = new ButtonDefault.MyEventType();
+                btnDef.DefaultTooltip = tooltip;
+                btnDef.SetTooltip(tooltip);
+            }
+
+            TextMeshProUGUI textComp = btnObj.GetComponentsInChildren<TextMeshProUGUI>(true).FirstOrDefault();
+            ResetActionButtonLanguageBindings(btnObj, label);
 
             if (hasIcon)
             {
-                // Create an invisible 72x72 container cell to satisfy the GridLayoutGroup
-                GameObject cellObj = new GameObject(PrefixCell + label, typeof(RectTransform));
-                cellObj.transform.SetParent(parentGrid, false);
+                if (textComp != null) textComp.gameObject.SetActive(false);
 
-                // Place the actual button inside the cell
-                btnObj = new GameObject(PrefixButton + label, typeof(RectTransform), typeof(Image), typeof(Button), typeof(ButtonDefault));
-                btnObj.transform.SetParent(cellObj.transform, false);
+                GameObject iconObj = new GameObject("Icon", typeof(RectTransform), typeof(Image));
+                iconObj.transform.SetParent(btnObj.transform, false);
                 
-                RectTransform rect = btnObj.GetComponent<RectTransform>();
-                rect.anchorMin = new Vector2(0.5f, 0.5f);
-                rect.anchorMax = new Vector2(0.5f, 0.5f);
-                rect.pivot = new Vector2(0.5f, 0.5f);
-                rect.anchoredPosition = Vector2.zero;
-                rect.sizeDelta = new Vector2(MinButtonSize, MinButtonSize); // Default before load
+                RectTransform iconRect = iconObj.GetComponent<RectTransform>();
+                iconRect.anchorMin = Vector2.zero;
+                iconRect.anchorMax = Vector2.one;
+                iconRect.offsetMin = new Vector2(8, 8);
+                iconRect.offsetMax = new Vector2(-8, -8);
                 
-                Image img = btnObj.GetComponent<Image>();
+                Image img = iconObj.GetComponent<Image>();
                 img.preserveAspect = true;
+
+                rect.sizeDelta = new Vector2(MinButtonSize, MinButtonSize);
 
                 mainScript runner = Camera.main?.GetComponent<mainScript>();
                 if (runner != null)
@@ -626,50 +711,32 @@ namespace ModButtons
                     { 
                         if (img.sprite != null && img.sprite.texture != null)
                         {
-                            // Clamp actual interactive button size based on loaded image dimensions
                             float w = Mathf.Clamp(img.sprite.texture.width, MinButtonSize, MaxButtonSize);
                             float h = Mathf.Clamp(img.sprite.texture.height, MinButtonSize, MaxButtonSize);
                             rect.sizeDelta = new Vector2(w, h);
                         }
                     }));
                 }
-
-                ButtonDefault btnDef = btnObj.GetComponent<ButtonDefault>();
-                btnDef.DefaultTooltip = label;
-                btnDef.SetTooltip(label);
             }
             else
             {
-                // Put fallback text buttons inside a layout cell too so grid doesn't squash them
-                GameObject cellObj = new GameObject(PrefixCell + label, typeof(RectTransform));
-                cellObj.transform.SetParent(parentGrid, false);
-
-                if (templateBtn != null)
+                if (textComp == null) textComp = CreateActionButtonText(btnObj);
+                if (textComp != null)
                 {
-                    btnObj = CloneMainButton(templateBtn, cellObj.transform, PrefixButton + label, label);
-                    btnObj.SetActive(true);
-                    
-                    RectTransform rect = btnObj.GetComponent<RectTransform>();
-                    rect.anchorMin = new Vector2(0.5f, 0.5f);
-                    rect.anchorMax = new Vector2(0.5f, 0.5f);
-                    rect.pivot = new Vector2(0.5f, 0.5f);
-                    rect.anchoredPosition = Vector2.zero;
-                    rect.sizeDelta = new Vector2(FallbackBtnMinWidth, FallbackBtnMinHeight);
-                    
-                    LayoutElement layoutElement = btnObj.GetComponent<LayoutElement>() ?? btnObj.AddComponent<LayoutElement>();
-                    layoutElement.minWidth = FallbackBtnMinWidth;
-                    layoutElement.minHeight = FallbackBtnMinHeight;
-                    layoutElement.ignoreLayout = true; // Prevents grid from crushing the fallback
+                    textComp.gameObject.SetActive(true);
+                    textComp.text = label;
+                    Lang_Button lb = textComp.GetComponent<Lang_Button>();
+                    if (lb != null) lb.Constant = label;
                 }
-                else
-                {
-                    btnObj = CreateGeneratedTextButton(cellObj.transform, PrefixButton + label, label);
-                }
+                rect.sizeDelta = new Vector2(FallbackBtnMinWidth, FallbackBtnMinHeight);
             }
 
-            Button btn = btnObj.GetComponent<Button>();
-            btn.onClick = new Button.ButtonClickedEvent();
-            btn.onClick.AddListener(() =>
+            LayoutElement layoutElement = btnObj.GetComponent<LayoutElement>() ?? btnObj.AddComponent<LayoutElement>();
+            layoutElement.minWidth = hasIcon ? MinButtonSize : FallbackBtnMinWidth;
+            layoutElement.minHeight = hasIcon ? MinButtonSize : FallbackBtnMinHeight;
+            layoutElement.ignoreLayout = true;
+
+            btn?.onClick.AddListener(() =>
             {
                 try
                 {
@@ -690,23 +757,27 @@ namespace ModButtons
             });
         }
 
-        private static GameObject CreateGeneratedTextButton(Transform parent, string name, string label)
+        private static void ResetActionButtonLanguageBindings(GameObject root, string label)
         {
-            GameObject btnObj = new GameObject(name, typeof(RectTransform), typeof(Image), typeof(Button));
-            btnObj.transform.SetParent(parent, false);
+            if (root == null) return;
 
-            RectTransform rect = btnObj.GetComponent<RectTransform>();
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.anchoredPosition = Vector2.zero;
-            rect.sizeDelta = new Vector2(FallbackBtnMinWidth, FallbackBtnMinHeight);
+            Lang_Button[] languageBindings = root.GetComponentsInChildren<Lang_Button>(true);
+            for (int i = 0; i < languageBindings.Length; i++)
+            {
+                Lang_Button binding = languageBindings[i];
+                if (binding == null) continue;
 
-            Image image = btnObj.GetComponent<Image>();
-            image.color = GeneratedButtonColor;
+                binding.Tooltip = string.Empty;
+                binding.Constant = binding.GetComponent<TextMeshProUGUI>() != null ? label : string.Empty;
+            }
+        }
+
+        private static TextMeshProUGUI CreateActionButtonText(GameObject button)
+        {
+            if (button == null) return null;
 
             GameObject textObj = new GameObject("Text", typeof(RectTransform), typeof(TextMeshProUGUI));
-            textObj.transform.SetParent(btnObj.transform, false);
+            textObj.transform.SetParent(button.transform, false);
 
             RectTransform textRect = textObj.GetComponent<RectTransform>();
             textRect.anchorMin = Vector2.zero;
@@ -715,12 +786,14 @@ namespace ModButtons
             textRect.offsetMax = Vector2.zero;
 
             TextMeshProUGUI text = textObj.GetComponent<TextMeshProUGUI>();
-            text.text = label;
             text.fontSize = 20f;
             text.alignment = TextAlignmentOptions.Center;
             text.color = Color.white;
 
-            return btnObj;
+            ButtonDefault buttonDefault = button.GetComponent<ButtonDefault>();
+            if (buttonDefault != null && buttonDefault.Text == null) buttonDefault.Text = textObj;
+
+            return text;
         }
 
         private static void CloseActionPopup()
