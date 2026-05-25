@@ -15,6 +15,17 @@ namespace AssitantManagerMod
         internal const int MaximumAssistantManagersPerAgency = 2;
         internal const int AssistantManagerOfficeRoomCost = 500000;
         internal const int AssistantManagerOfficeRoomSpace = 1;
+        internal const int AssistantManagerNoviceProductionLevel = 2;
+        internal const int AssistantManagerProfessionalProductionLevel = 4;
+        internal const int AssistantManagerExpertProductionLevel = 6;
+        internal const int AssistantManagerNoviceInfluenceLevel = 0;
+        internal const int AssistantManagerProfessionalInfluenceLevel = 1;
+        internal const int AssistantManagerExpertInfluenceLevel = 2;
+
+        internal const string AssistantManagerOfficeBuildButtonObjectName = "AssistantManagerOffice_BuildRoomButton";
+        internal const string AssistantManagerHireButtonObjectName = "AssistantManager_StaffHireButton";
+        internal const string MalePlayerPortraitFolderName = "Player_Male";
+        internal const string FemalePlayerPortraitFolderName = "Player_Female";
 
         internal const string KeyAssistantManagerTitle = "staff.assistant_manager.title";
         internal const string KeyAssistantManagerTooltip = "staff.assistant_manager.tooltip";
@@ -188,31 +199,68 @@ namespace AssitantManagerMod
             return CountAssistantManagerOffices(agencyInstance) < AssistantManagerConstants.MaximumAssistantManagersPerAgency;
         }
 
-        internal static List<staff._staff._skill> CreateAssistantManagerSkills(staff._expertise expertise)
+        internal static int GetAssistantManagerProductionSkillLevel(staff._expertise expertise)
         {
-            int level = 2;
             if (expertise == staff._expertise.professional)
             {
-                level = 4;
-            }
-            else if (expertise == staff._expertise.expert)
-            {
-                level = 6;
+                return AssistantManagerConstants.AssistantManagerProfessionalProductionLevel;
             }
 
+            if (expertise == staff._expertise.expert)
+            {
+                return AssistantManagerConstants.AssistantManagerExpertProductionLevel;
+            }
+
+            return AssistantManagerConstants.AssistantManagerNoviceProductionLevel;
+        }
+
+        internal static int GetAssistantManagerInfluenceSkillLevel(staff._expertise expertise)
+        {
+            if (expertise == staff._expertise.professional)
+            {
+                return AssistantManagerConstants.AssistantManagerProfessionalInfluenceLevel;
+            }
+
+            if (expertise == staff._expertise.expert)
+            {
+                return AssistantManagerConstants.AssistantManagerExpertInfluenceLevel;
+            }
+
+            return AssistantManagerConstants.AssistantManagerNoviceInfluenceLevel;
+        }
+
+        internal static List<staff._staff._skill> CreateAssistantManagerSkills(staff._expertise expertise)
+        {
             List<staff._staff._skill> skills = new List<staff._staff._skill>();
             skills.Add(new staff._staff._skill
             {
                 skill_type = staff._skill_type.production,
-                level = level,
+                level = GetAssistantManagerProductionSkillLevel(expertise),
                 primary = true
             });
             skills.Add(new staff._staff._skill
             {
                 skill_type = staff._skill_type.influence,
-                level = level
+                level = GetAssistantManagerInfluenceSkillLevel(expertise)
             });
             return skills;
+        }
+
+        internal static staff._staff GenerateAssistantManagerStaff(staff staffFactory, staff._expertise expertise)
+        {
+            if (staffFactory == null)
+            {
+                return null;
+            }
+
+            staff._staff generatedStaff = new staff._staff();
+            generatedStaff.firstName = nameGenerator.firstName(!IsPlayerMale());
+            generatedStaff.lastName = nameGenerator.lastName();
+            generatedStaff.id = staff.GetNewStaffID();
+            generatedStaff.type = AssistantManagerConstants.AssistantManagerStaffType;
+            generatedStaff.skills = staffFactory.GetSkillsByType(generatedStaff.type, expertise, false);
+            generatedStaff.SetParentRefs();
+            return generatedStaff;
         }
 
         internal static string GetPlayerPortraitFolderName()
@@ -221,14 +269,14 @@ namespace AssitantManagerMod
             {
                 if (staticVars.PlayerData != null && staticVars.PlayerData.IsFemale())
                 {
-                    return "Player_Female";
+                    return AssistantManagerConstants.FemalePlayerPortraitFolderName;
                 }
             }
             catch
             {
             }
 
-            return "Player_Male";
+            return AssistantManagerConstants.MalePlayerPortraitFolderName;
         }
 
         internal static bool IsPlayerMale()
@@ -330,7 +378,7 @@ namespace AssitantManagerMod
             }
 
             BuildRoomButton[] buttons = agencyInstance.newRoomPopup.GetComponentsInChildren<BuildRoomButton>(true);
-            BuildRoomButton cloneSource = null;
+            BuildRoomButton managerOfficeBuildButton = null;
             for (int i = 0; i < buttons.Length; i++)
             {
                 if (buttons[i] == null)
@@ -340,37 +388,34 @@ namespace AssitantManagerMod
 
                 if (buttons[i].type == AssistantManagerConstants.AssistantManagerOfficeRoomType)
                 {
-                    SetFirstTextComponent(buttons[i].gameObject, AssistantManagerText.AssistantManagerOfficeTitle);
+                    ApplyAssistantManagerOfficeBuildButtonPresentation(buttons[i], agencyInstance);
                     return;
                 }
 
                 if (buttons[i].type == agency._type.yourOffice)
                 {
-                    cloneSource = buttons[i];
-                }
-                else if (cloneSource == null && buttons[i].type == agency._type.office)
-                {
-                    cloneSource = buttons[i];
+                    managerOfficeBuildButton = buttons[i];
                 }
             }
 
-            if (cloneSource == null)
+            if (managerOfficeBuildButton == null)
             {
                 return;
             }
 
-            GameObject clone = UnityEngine.Object.Instantiate<GameObject>(cloneSource.gameObject, cloneSource.transform.parent, false);
-            clone.name = "AssistantManagerOffice_BuildRoomButton";
+            GameObject clone = UnityEngine.Object.Instantiate<GameObject>(
+                managerOfficeBuildButton.gameObject,
+                managerOfficeBuildButton.transform.parent,
+                false);
+            clone.name = AssistantManagerConstants.AssistantManagerOfficeBuildButtonObjectName;
             BuildRoomButton buildRoomButton = clone.GetComponent<BuildRoomButton>();
             if (buildRoomButton == null)
             {
                 return;
             }
 
-            buildRoomButton.type = AssistantManagerConstants.AssistantManagerOfficeRoomType;
-            buildRoomButton.available = true;
-            SetFirstTextComponent(clone, AssistantManagerText.AssistantManagerOfficeTitle);
             clone.transform.SetAsLastSibling();
+            ApplyAssistantManagerOfficeBuildButtonPresentation(buildRoomButton, agencyInstance);
         }
 
         internal static void EnsureStaffHireButton(Staff_Hire_Popup popup)
@@ -392,7 +437,7 @@ namespace AssitantManagerMod
                 if (buttons[i].Type == AssistantManagerConstants.AssistantManagerStaffType)
                 {
                     buttons[i].Set(popup.Expertise);
-                    SetStaffHireButtonAvailability(buttons[i]);
+                    ApplyAssistantManagerHireButtonPresentation(buttons[i]);
                     return;
                 }
 
@@ -412,7 +457,7 @@ namespace AssitantManagerMod
             }
 
             GameObject clone = UnityEngine.Object.Instantiate<GameObject>(cloneSource.gameObject, cloneSource.transform.parent, false);
-            clone.name = "AssistantManager_StaffHireButton";
+            clone.name = AssistantManagerConstants.AssistantManagerHireButtonObjectName;
             Staff_Hire_Button hireButton = clone.GetComponent<Staff_Hire_Button>();
             if (hireButton == null)
             {
@@ -422,6 +467,30 @@ namespace AssitantManagerMod
             hireButton.Type = AssistantManagerConstants.AssistantManagerStaffType;
             clone.transform.SetAsLastSibling();
             hireButton.Set(popup.Expertise);
+            ApplyAssistantManagerHireButtonPresentation(hireButton);
+        }
+
+        internal static void ApplyAssistantManagerOfficeBuildButtonPresentation(BuildRoomButton buildRoomButton, agency agencyInstance)
+        {
+            if (buildRoomButton == null)
+            {
+                return;
+            }
+
+            buildRoomButton.type = AssistantManagerConstants.AssistantManagerOfficeRoomType;
+            buildRoomButton.available = true;
+            SetFirstTextComponent(buildRoomButton.gameObject, AssistantManagerText.AssistantManagerOfficeTitle);
+            SetBuildRoomButtonAvailability(buildRoomButton, agencyInstance);
+        }
+
+        internal static void ApplyAssistantManagerHireButtonPresentation(Staff_Hire_Button hireButton)
+        {
+            if (hireButton == null || hireButton.Type != AssistantManagerConstants.AssistantManagerStaffType)
+            {
+                return;
+            }
+
+            ReplaceKnownStaffRoleText(hireButton.gameObject, AssistantManagerText.AssistantManagerTitle);
             SetStaffHireButtonAvailability(hireButton);
         }
 
@@ -644,6 +713,49 @@ namespace AssitantManagerMod
                     return;
                 }
             }
+        }
+
+        internal static void ReplaceKnownStaffRoleText(GameObject root, string replacementText)
+        {
+            if (root == null || string.IsNullOrEmpty(replacementText))
+            {
+                return;
+            }
+
+            string productionManagerTitle = staff.GetJobTitleString(staff._type.production_manager);
+            string salesManagerTitle = staff.GetJobTitleString(staff._type.sales_manager);
+            string producerTitle = staff.GetJobTitleString(staff._type.player);
+
+            TextMeshProUGUI[] tmpTexts = root.GetComponentsInChildren<TextMeshProUGUI>(true);
+            for (int i = 0; i < tmpTexts.Length; i++)
+            {
+                if (tmpTexts[i] != null && IsKnownStaffRoleLabel(tmpTexts[i].text, productionManagerTitle, salesManagerTitle, producerTitle))
+                {
+                    tmpTexts[i].text = replacementText;
+                }
+            }
+
+            Text[] unityTexts = root.GetComponentsInChildren<Text>(true);
+            for (int i = 0; i < unityTexts.Length; i++)
+            {
+                if (unityTexts[i] != null && IsKnownStaffRoleLabel(unityTexts[i].text, productionManagerTitle, salesManagerTitle, producerTitle))
+                {
+                    unityTexts[i].text = replacementText;
+                }
+            }
+        }
+
+        private static bool IsKnownStaffRoleLabel(string currentText, string productionManagerTitle, string salesManagerTitle, string producerTitle)
+        {
+            if (string.IsNullOrEmpty(currentText))
+            {
+                return false;
+            }
+
+            string normalizedText = currentText.Trim();
+            return string.Equals(normalizedText, productionManagerTitle, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(normalizedText, salesManagerTitle, StringComparison.OrdinalIgnoreCase) ||
+                   string.Equals(normalizedText, producerTitle, StringComparison.OrdinalIgnoreCase);
         }
 
         internal static singles._single._param._type GetManagerOfficeSingleParamType(singles._single single)
@@ -900,7 +1012,26 @@ namespace AssitantManagerMod
     {
         private static void Postfix(BuildRoomButton __instance)
         {
-            AssistantManagerRules.SetBuildRoomButtonAvailability(__instance, null);
+            if (__instance == null || __instance.type != AssistantManagerConstants.AssistantManagerOfficeRoomType)
+            {
+                return;
+            }
+
+            AssistantManagerRules.ApplyAssistantManagerOfficeBuildButtonPresentation(__instance, null);
+        }
+    }
+
+    [HarmonyPatch(typeof(BuildRoomButton), "OnEnable")]
+    internal static class BuildRoomButtonOnEnablePatch
+    {
+        private static void Postfix(BuildRoomButton __instance)
+        {
+            if (__instance == null || __instance.type != AssistantManagerConstants.AssistantManagerOfficeRoomType)
+            {
+                return;
+            }
+
+            AssistantManagerRules.ApplyAssistantManagerOfficeBuildButtonPresentation(__instance, null);
         }
     }
 
@@ -960,7 +1091,7 @@ namespace AssitantManagerMod
     {
         private static void Postfix(Staff_Hire_Button __instance)
         {
-            AssistantManagerRules.SetStaffHireButtonAvailability(__instance);
+            AssistantManagerRules.ApplyAssistantManagerHireButtonPresentation(__instance);
         }
     }
 
@@ -1033,14 +1164,7 @@ namespace AssitantManagerMod
                 return true;
             }
 
-            staff._staff generatedStaff = new staff._staff();
-            generatedStaff.firstName = nameGenerator.firstName(!AssistantManagerRules.IsPlayerMale());
-            generatedStaff.lastName = nameGenerator.lastName();
-            generatedStaff.id = staff.GetNewStaffID();
-            generatedStaff.type = type;
-            generatedStaff.skills = __instance.GetSkillsByType(type, expertise, false);
-            generatedStaff.SetParentRefs();
-            __result = generatedStaff;
+            __result = AssistantManagerRules.GenerateAssistantManagerStaff(__instance, expertise);
             return false;
         }
     }
@@ -1283,14 +1407,14 @@ namespace AssitantManagerMod
     [HarmonyPatch(typeof(agency._room), nameof(agency._room.showParamType))]
     internal static class RoomShowParamTypePatch
     {
-        private static bool Prefix(agency._room __instance, Shows._show __show, ref Shows._show._progressable._type __result)
+        private static bool Prefix(agency._room __instance, Shows._show __0, ref Shows._show._progressable._type __result)
         {
             if (!AssistantManagerRules.IsAssistantManagerOffice(__instance))
             {
                 return true;
             }
 
-            __result = AssistantManagerRules.GetManagerOfficeShowParamType(__show);
+            __result = AssistantManagerRules.GetManagerOfficeShowParamType(__0);
             return false;
         }
     }
@@ -1298,14 +1422,14 @@ namespace AssitantManagerMod
     [HarmonyPatch(typeof(agency._room), nameof(agency._room.SSKParamType))]
     internal static class RoomSskParamTypePatch
     {
-        private static bool Prefix(agency._room __instance, SEvent_SSK._SSK __SSK, ref SEvent_SSK._SSK._progressable._type __result)
+        private static bool Prefix(agency._room __instance, SEvent_SSK._SSK __0, ref SEvent_SSK._SSK._progressable._type __result)
         {
             if (!AssistantManagerRules.IsAssistantManagerOffice(__instance))
             {
                 return true;
             }
 
-            __result = AssistantManagerRules.GetManagerOfficeSskParamType(__SSK);
+            __result = AssistantManagerRules.GetManagerOfficeSskParamType(__0);
             return false;
         }
     }
@@ -1313,14 +1437,14 @@ namespace AssitantManagerMod
     [HarmonyPatch(typeof(agency._room), nameof(agency._room.TourParamType))]
     internal static class RoomTourParamTypePatch
     {
-        private static bool Prefix(agency._room __instance, SEvent_Tour.tour __Tour, ref SEvent_Tour.tour._progressable._type __result)
+        private static bool Prefix(agency._room __instance, SEvent_Tour.tour __0, ref SEvent_Tour.tour._progressable._type __result)
         {
             if (!AssistantManagerRules.IsAssistantManagerOffice(__instance))
             {
                 return true;
             }
 
-            __result = AssistantManagerRules.GetManagerOfficeTourParamType(__Tour);
+            __result = AssistantManagerRules.GetManagerOfficeTourParamType(__0);
             return false;
         }
     }
@@ -1328,14 +1452,14 @@ namespace AssitantManagerMod
     [HarmonyPatch(typeof(agency._room), nameof(agency._room.concertParamType))]
     internal static class RoomConcertParamTypePatch
     {
-        private static bool Prefix(agency._room __instance, SEvent_Concerts._concert __Concert, ref SEvent_Concerts._concert._progressable._type __result)
+        private static bool Prefix(agency._room __instance, SEvent_Concerts._concert __0, ref SEvent_Concerts._concert._progressable._type __result)
         {
             if (!AssistantManagerRules.IsAssistantManagerOffice(__instance))
             {
                 return true;
             }
 
-            __result = AssistantManagerRules.GetManagerOfficeConcertParamType(__Concert);
+            __result = AssistantManagerRules.GetManagerOfficeConcertParamType(__0);
             return false;
         }
     }
@@ -1358,14 +1482,14 @@ namespace AssitantManagerMod
     [HarmonyPatch(typeof(agency._room), nameof(agency._room.GetTitle_Tour), new Type[] { typeof(SEvent_SSK._SSK) })]
     internal static class RoomGetTitleTourSskPatch
     {
-        private static bool Prefix(agency._room __instance, SEvent_SSK._SSK __SSK, ref string __result)
+        private static bool Prefix(agency._room __instance, SEvent_SSK._SSK __0, ref string __result)
         {
             if (!AssistantManagerRules.IsAssistantManagerOffice(__instance))
             {
                 return true;
             }
 
-            SEvent_SSK._SSK._progressable._type type = AssistantManagerRules.GetManagerOfficeSskParamType(__SSK);
+            SEvent_SSK._SSK._progressable._type type = AssistantManagerRules.GetManagerOfficeSskParamType(__0);
             __result = type == SEvent_SSK._SSK._progressable._type.production
                 ? Language.Data["AGENCY__PRODUCTION"]
                 : Language.Data["AGENCY__LOGISTICS"];
@@ -1376,14 +1500,14 @@ namespace AssitantManagerMod
     [HarmonyPatch(typeof(agency._room), nameof(agency._room.GetTitle_Tour), new Type[] { typeof(SEvent_Tour.tour) })]
     internal static class RoomGetTitleTourTourPatch
     {
-        private static bool Prefix(agency._room __instance, SEvent_Tour.tour __Tour, ref string __result)
+        private static bool Prefix(agency._room __instance, SEvent_Tour.tour __0, ref string __result)
         {
             if (!AssistantManagerRules.IsAssistantManagerOffice(__instance))
             {
                 return true;
             }
 
-            SEvent_Tour.tour._progressable._type type = AssistantManagerRules.GetManagerOfficeTourParamType(__Tour);
+            SEvent_Tour.tour._progressable._type type = AssistantManagerRules.GetManagerOfficeTourParamType(__0);
             __result = type == SEvent_Tour.tour._progressable._type.production
                 ? Language.Data["AGENCY__PRODUCTION"]
                 : Language.Data["AGENCY__LOGISTICS"];
@@ -1656,18 +1780,18 @@ namespace AssitantManagerMod
     [HarmonyPatch(typeof(Room), nameof(Room.SetTitle_Single))]
     internal static class RoomSetTitleSinglePatch
     {
-        private static bool Prefix(Room __instance, bool RedText, singles._single __Single)
+        private static bool Prefix(Room __instance, bool __0, singles._single __1)
         {
             if (__instance == null || !AssistantManagerRules.IsAssistantManagerOffice(__instance.room))
             {
                 return true;
             }
 
-            string text = __instance.room.GetTitle_Single(__Single);
+            string text = __instance.room.GetTitle_Single(__1);
             if (__instance.room.staffer != null)
             {
                 float points = AssistantManagerRules.GetManagerOfficeTaskPoints(__instance.room, staff._skill_type.production);
-                if (__Single != null && __Single.GetParam(singles._single._param._type.lyrics).val != 0f)
+                if (__1 != null && __1.GetParam(singles._single._param._type.lyrics).val != 0f)
                 {
                     points = AssistantManagerRules.ApplyManagerOfficeSecondaryTaskPenalty(points);
                 }
@@ -1675,7 +1799,7 @@ namespace AssitantManagerMod
                 text = text + ": " + ExtensionMethods.formatNumber(Mathf.RoundToInt(points), false, false);
             }
 
-            __instance.ShowTitle(ExtensionMethods.color(text, RedText ? mainScript.red : mainScript.green), null);
+            __instance.ShowTitle(ExtensionMethods.color(text, __0 ? mainScript.red : mainScript.green), null);
             return false;
         }
     }
@@ -1683,18 +1807,18 @@ namespace AssitantManagerMod
     [HarmonyPatch(typeof(Room), nameof(Room.SetTitle_Show))]
     internal static class RoomSetTitleShowPatch
     {
-        private static bool Prefix(Room __instance, bool RedText, Shows._show __Show)
+        private static bool Prefix(Room __instance, bool __0, Shows._show __1)
         {
             if (__instance == null || !AssistantManagerRules.IsAssistantManagerOffice(__instance.room))
             {
                 return true;
             }
 
-            string text = __instance.room.GetTitle_Show(__Show);
+            string text = __instance.room.GetTitle_Show(__1);
             if (__instance.room.staffer != null)
             {
                 float points = AssistantManagerRules.GetManagerOfficeTaskPoints(__instance.room, staff._skill_type.production);
-                if (__Show != null && __Show.GetParam(Shows._show._progressable._type.concept).val != 0f)
+                if (__1 != null && __1.GetParam(Shows._show._progressable._type.concept).val != 0f)
                 {
                     points = AssistantManagerRules.ApplyManagerOfficeSecondaryTaskPenalty(points);
                 }
@@ -1702,7 +1826,7 @@ namespace AssitantManagerMod
                 text = text + ": " + ExtensionMethods.formatNumber(Mathf.RoundToInt(points), false, false);
             }
 
-            __instance.ShowTitle(ExtensionMethods.color(text, RedText ? mainScript.red : mainScript.green), null);
+            __instance.ShowTitle(ExtensionMethods.color(text, __0 ? mainScript.red : mainScript.green), null);
             return false;
         }
     }
@@ -1710,7 +1834,7 @@ namespace AssitantManagerMod
     [HarmonyPatch(typeof(Room), nameof(Room.SetTitle_Tour))]
     internal static class RoomSetTitleTourPatch
     {
-        private static bool Prefix(Room __instance, bool RedText, SEvent_SSK._SSK __SSK, SEvent_Tour.tour __Tour)
+        private static bool Prefix(Room __instance, bool __0, SEvent_SSK._SSK __1, SEvent_Tour.tour __2)
         {
             if (__instance == null || !AssistantManagerRules.IsAssistantManagerOffice(__instance.room))
             {
@@ -1718,13 +1842,13 @@ namespace AssitantManagerMod
             }
 
             string text;
-            if (__Tour != null)
+            if (__2 != null)
             {
-                text = __instance.room.GetTitle_Tour(__Tour);
+                text = __instance.room.GetTitle_Tour(__2);
             }
-            else if (__SSK != null)
+            else if (__1 != null)
             {
-                text = __instance.room.GetTitle_Tour(__SSK);
+                text = __instance.room.GetTitle_Tour(__1);
             }
             else
             {
@@ -1734,12 +1858,12 @@ namespace AssitantManagerMod
             if (__instance.room.staffer != null)
             {
                 float points = AssistantManagerRules.GetManagerOfficeTaskPoints(__instance.room, staff._skill_type.production);
-                if (__SSK != null && __SSK.GetParam(SEvent_SSK._SSK._progressable._type.production).val != 0f)
+                if (__1 != null && __1.GetParam(SEvent_SSK._SSK._progressable._type.production).val != 0f)
                 {
                     points = AssistantManagerRules.ApplyManagerOfficeSecondaryTaskPenalty(points);
                 }
 
-                if (__Tour != null && __Tour.GetParam(SEvent_Tour.tour._progressable._type.production).val != 0f)
+                if (__2 != null && __2.GetParam(SEvent_Tour.tour._progressable._type.production).val != 0f)
                 {
                     points = AssistantManagerRules.ApplyManagerOfficeSecondaryTaskPenalty(points);
                 }
@@ -1747,7 +1871,7 @@ namespace AssitantManagerMod
                 text = text + ": " + ExtensionMethods.formatNumber(Mathf.RoundToInt(points), false, false);
             }
 
-            __instance.ShowTitle(ExtensionMethods.color(text, RedText ? mainScript.red : mainScript.green), null);
+            __instance.ShowTitle(ExtensionMethods.color(text, __0 ? mainScript.red : mainScript.green), null);
             return false;
         }
     }
@@ -1755,18 +1879,18 @@ namespace AssitantManagerMod
     [HarmonyPatch(typeof(Room), nameof(Room.SetTitle_Concert))]
     internal static class RoomSetTitleConcertPatch
     {
-        private static bool Prefix(Room __instance, bool RedText, SEvent_Concerts._concert __Concert)
+        private static bool Prefix(Room __instance, bool __0, SEvent_Concerts._concert __1)
         {
             if (__instance == null || !AssistantManagerRules.IsAssistantManagerOffice(__instance.room))
             {
                 return true;
             }
 
-            string text = __instance.room.GetTitle_Concert(__Concert);
+            string text = __instance.room.GetTitle_Concert(__1);
             if (__instance.room.staffer != null)
             {
                 float points = AssistantManagerRules.GetManagerOfficeTaskPoints(__instance.room, staff._skill_type.production);
-                if (__Concert != null && __Concert.GetParam(SEvent_Concerts._concert._progressable._type.production).val != 0f)
+                if (__1 != null && __1.GetParam(SEvent_Concerts._concert._progressable._type.production).val != 0f)
                 {
                     points = AssistantManagerRules.ApplyManagerOfficeSecondaryTaskPenalty(points);
                 }
@@ -1774,7 +1898,7 @@ namespace AssitantManagerMod
                 text = text + ": " + ExtensionMethods.formatNumber(Mathf.RoundToInt(points), false, false);
             }
 
-            __instance.ShowTitle(ExtensionMethods.color(text, RedText ? mainScript.red : mainScript.green), null);
+            __instance.ShowTitle(ExtensionMethods.color(text, __0 ? mainScript.red : mainScript.green), null);
             return false;
         }
     }
@@ -1782,17 +1906,17 @@ namespace AssitantManagerMod
     [HarmonyPatch(typeof(loans), nameof(loans.AddLoan))]
     internal static class LoansAddLoanPatch
     {
-        private static bool Prefix(loans._loan __loan)
+        private static bool Prefix(loans._loan __0)
         {
-            if (__loan == null)
+            if (__0 == null)
             {
                 return false;
             }
 
-            loans.Loans.Add(__loan);
-            if (__loan.GetDaysToDevelop() == 0)
+            loans.Loans.Add(__0);
+            if (__0.GetDaysToDevelop() == 0)
             {
-                __loan.Initialize();
+                __0.Initialize();
                 return false;
             }
 
@@ -1804,7 +1928,7 @@ namespace AssitantManagerMod
 
             if (targetRoom != null)
             {
-                targetRoom.assign(__loan);
+                targetRoom.assign(__0);
             }
 
             NotificationManager.AddNotification(

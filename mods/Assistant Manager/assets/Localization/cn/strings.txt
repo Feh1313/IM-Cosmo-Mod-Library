@@ -1,4 +1,11 @@
-# Machine-translated localization for Graduation Details.
+# Machine-translated localization for Assistant Manager.
 # Generated from the English source and may contain errors or awkward phrasing.
 # Format: key=value
 
+staff.assistant_manager.title=助理经理
+staff.assistant_manager.tooltip=可以管理助理经理办公室。
+staff.assistant_manager.limit_reached=已达到助理经理数量上限。
+room.assistant_manager_office.title=助理经理办公室
+room.assistant_manager_office.requires=需要：助理经理员工
+room.assistant_manager_office.limit=每个事务所最多：2
+room.assistant_manager_office.no_available_loan_room=需要可用的经理办公室或助理经理办公室。

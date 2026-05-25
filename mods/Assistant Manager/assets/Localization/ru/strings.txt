@@ -1,4 +1,11 @@
-# Machine-translated localization for Graduation Details.
+# Machine-translated localization for Assistant Manager.
 # Generated from the English source and may contain errors or awkward phrasing.
 # Format: key=value
 
+staff.assistant_manager.title=Помощник менеджера
+staff.assistant_manager.tooltip=Может работать в офисах помощника менеджера.
+staff.assistant_manager.limit_reached=Достигнут лимит помощников менеджера.
+room.assistant_manager_office.title=Офис помощника менеджера
+room.assistant_manager_office.requires=Требуется: сотрудник-помощник менеджера
+room.assistant_manager_office.limit=Максимум на агентство: 2
+room.assistant_manager_office.no_available_loan_room=Требуется доступный офис менеджера или офис помощника менеджера.

@@ -1,4 +1,11 @@
-# Machine-translated localization for Graduation Details.
+# Machine-translated localization for Assistant Manager.
 # Generated from the English source and may contain errors or awkward phrasing.
 # Format: key=value
 
+staff.assistant_manager.title=Gerente Assistente
+staff.assistant_manager.tooltip=Pode trabalhar em Escritórios de Gerente Assistente.
+staff.assistant_manager.limit_reached=Limite de Gerentes Assistentes atingido.
+room.assistant_manager_office.title=Escritório do Gerente Assistente
+room.assistant_manager_office.requires=Requer: funcionário Gerente Assistente
+room.assistant_manager_office.limit=Máximo por agência: 2
+room.assistant_manager_office.no_available_loan_room=Requer um Escritório do Gerente disponível ou um Escritório do Gerente Assistente.
