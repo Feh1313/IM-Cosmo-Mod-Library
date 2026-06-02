@@ -406,12 +406,11 @@ namespace AssitantManagerMod
 
             BuildRoomButton[] buttons = agencyInstance.newRoomPopup.GetComponentsInChildren<BuildRoomButton>(true);
             BuildRoomButton managerOfficeBuildButton = null;
+            BuildRoomButton theaterBuildButton = null;
+
             for (int i = 0; i < buttons.Length; i++)
             {
-                if (buttons[i] == null)
-                {
-                    continue;
-                }
+                if (buttons[i] == null) continue;
 
                 if (buttons[i].type == AssistantManagerConstants.AssistantManagerOfficeRoomType)
                 {
@@ -419,10 +418,8 @@ namespace AssitantManagerMod
                     return;
                 }
 
-                if (buttons[i].type == agency._type.yourOffice)
-                {
-                    managerOfficeBuildButton = buttons[i];
-                }
+                if (buttons[i].type == agency._type.yourOffice) managerOfficeBuildButton = buttons[i];
+                if (buttons[i].type == agency._type.theatre) theaterBuildButton = buttons[i];
             }
 
             if (managerOfficeBuildButton == null)
@@ -441,7 +438,16 @@ namespace AssitantManagerMod
                 return;
             }
 
-            clone.transform.SetAsLastSibling();
+            if (theaterBuildButton != null)
+            {
+                clone.transform.SetParent(theaterBuildButton.transform.parent, false);
+                clone.transform.SetSiblingIndex(theaterBuildButton.transform.GetSiblingIndex() + 1);
+            }
+            else
+            {
+                clone.transform.SetAsLastSibling();
+            }
+
             ApplyAssistantManagerOfficeBuildButtonPresentation(buildRoomButton, agencyInstance);
         }
 
@@ -454,12 +460,10 @@ namespace AssitantManagerMod
 
             Staff_Hire_Button[] buttons = popup.Container.GetComponentsInChildren<Staff_Hire_Button>(true);
             Staff_Hire_Button cloneSource = null;
+
             for (int i = 0; i < buttons.Length; i++)
             {
-                if (buttons[i] == null)
-                {
-                    continue;
-                }
+                if (buttons[i] == null) continue;
 
                 if (buttons[i].Type == AssistantManagerConstants.AssistantManagerStaffType)
                 {
@@ -472,27 +476,25 @@ namespace AssitantManagerMod
                 {
                     cloneSource = buttons[i];
                 }
-                else if (cloneSource == null && buttons[i].Type == staff._type.sales_manager)
-                {
-                    cloneSource = buttons[i];
-                }
             }
 
-            if (cloneSource == null)
+            if (cloneSource == null) return;
+
+            Transform sourceRow = cloneSource.transform.parent;
+            GameObject newRow = UnityEngine.Object.Instantiate<GameObject>(sourceRow.gameObject, sourceRow.parent, false);
+            newRow.name = "AssistantManagerRow";
+            newRow.transform.SetAsLastSibling();
+
+            Staff_Hire_Button[] newButtons = newRow.GetComponentsInChildren<Staff_Hire_Button>(true);
+            Staff_Hire_Button hireButton = newButtons[0];
+            
+            for (int i = 1; i < newButtons.Length; i++)
             {
-                return;
+                UnityEngine.Object.Destroy(newButtons[i].gameObject);
             }
 
-            GameObject clone = UnityEngine.Object.Instantiate<GameObject>(cloneSource.gameObject, cloneSource.transform.parent, false);
-            clone.name = AssistantManagerConstants.AssistantManagerHireButtonObjectName;
-            Staff_Hire_Button hireButton = clone.GetComponent<Staff_Hire_Button>();
-            if (hireButton == null)
-            {
-                return;
-            }
-
+            hireButton.name = AssistantManagerConstants.AssistantManagerHireButtonObjectName;
             hireButton.Type = AssistantManagerConstants.AssistantManagerStaffType;
-            clone.transform.SetAsLastSibling();
             hireButton.Set(popup.Expertise);
             ApplyAssistantManagerHireButtonPresentation(hireButton);
         }
@@ -721,24 +723,17 @@ namespace AssitantManagerMod
                 return;
             }
 
-            TextMeshProUGUI[] tmpTexts = root.GetComponentsInChildren<TextMeshProUGUI>(true);
-            for (int i = 0; i < tmpTexts.Length; i++)
+            TextMeshProUGUI tmpText = root.GetComponentInChildren<TextMeshProUGUI>(true);
+            if (tmpText != null)
             {
-                if (tmpTexts[i] != null && !string.IsNullOrEmpty(tmpTexts[i].text))
-                {
-                    tmpTexts[i].text = text;
-                    return;
-                }
+                tmpText.text = text;
+                return;
             }
 
-            Text[] unityTexts = root.GetComponentsInChildren<Text>(true);
-            for (int i = 0; i < unityTexts.Length; i++)
+            Text unityText = root.GetComponentInChildren<Text>(true);
+            if (unityText != null)
             {
-                if (unityTexts[i] != null && !string.IsNullOrEmpty(unityTexts[i].text))
-                {
-                    unityTexts[i].text = text;
-                    return;
-                }
+                unityText.text = text;
             }
         }
 
@@ -947,9 +942,99 @@ namespace AssitantManagerMod
 
             VO.Play(VO.GetRandom(VO._random.joy), girl);
         }
+
+        // --- Context Menu UI Extractor & Injector Helper Methods ---
+        
+        internal static GameObject GetContextMenuGameObject(ContextMenuController._ContextMenu contextMenu)
+        {
+            if (contextMenu == null) return null;
+            
+            string[] fieldNames = { "obj", "gameObject", "menu", "Container", "panel" };
+            foreach (string fieldName in fieldNames)
+            {
+                FieldInfo field = typeof(ContextMenuController._ContextMenu).GetField(fieldName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+                if (field != null)
+                {
+                    object val = field.GetValue(contextMenu);
+                    if (val is GameObject go) return go;
+                    if (val is Component comp) return comp.gameObject;
+                }
+            }
+            return null;
+        }
+
+        internal static void InjectFireButtons(ContextMenuController._ContextMenu yourOfficeMenu, ContextMenuController._ContextMenu officeMenu)
+        {
+            GameObject yourOfficeGo = GetContextMenuGameObject(yourOfficeMenu);
+            GameObject officeGo = GetContextMenuGameObject(officeMenu);
+
+            if (yourOfficeGo == null || officeGo == null) return;
+
+            ButtonDefault[] yourOfficeButtons = yourOfficeGo.GetComponentsInChildren<ButtonDefault>(true);
+            Transform targetParent = yourOfficeGo.transform;
+            if (yourOfficeButtons.Length > 0)
+            {
+                targetParent = yourOfficeButtons[yourOfficeButtons.Length - 1].transform.parent;
+            }
+
+            Transform existingFire = targetParent.Find("AssistantManager_FireButton");
+            if (existingFire != null) return;
+
+            ButtonDefault[] officeButtons = officeGo.GetComponentsInChildren<ButtonDefault>(true);
+            if (officeButtons.Length >= 2)
+            {
+                // We grab the last two standard buttons in the Office menu: Fire and Fire(Severance)
+                ButtonDefault fireBtnSrc = officeButtons[officeButtons.Length - 2];
+                ButtonDefault fireSevBtnSrc = officeButtons[officeButtons.Length - 1];
+
+                GameObject cloneFire = UnityEngine.Object.Instantiate(fireBtnSrc.gameObject, targetParent, false);
+                cloneFire.name = "AssistantManager_FireButton";
+                cloneFire.transform.SetAsLastSibling();
+
+                GameObject cloneSev = UnityEngine.Object.Instantiate(fireSevBtnSrc.gameObject, targetParent, false);
+                cloneSev.name = "AssistantManager_FireSeveranceButton";
+                cloneSev.transform.SetAsLastSibling();
+            }
+        }
+
+        internal static void ToggleInjectedFireButtons(ContextMenuController controller, bool show)
+        {
+            if (controller == null || controller.ContextMenu == null) return;
+
+            ContextMenuController._ContextMenu yourOfficeMenu = null;
+            for (int i = 0; i < controller.ContextMenu.Count; i++)
+            {
+                if (controller.ContextMenu[i] != null && controller.ContextMenu[i].type == agency._type.yourOffice)
+                {
+                    yourOfficeMenu = controller.ContextMenu[i];
+                    break;
+                }
+            }
+
+            GameObject yourOfficeGo = GetContextMenuGameObject(yourOfficeMenu);
+            if (yourOfficeGo != null)
+            {
+                Transform fireBtn = FindDeepChild(yourOfficeGo.transform, "AssistantManager_FireButton");
+                Transform fireSevBtn = FindDeepChild(yourOfficeGo.transform, "AssistantManager_FireSeveranceButton");
+
+                if (fireBtn != null) fireBtn.gameObject.SetActive(show);
+                if (fireSevBtn != null) fireSevBtn.gameObject.SetActive(show);
+            }
+        }
+
+        private static Transform FindDeepChild(Transform parent, string name)
+        {
+            if (parent.name == name) return parent;
+            foreach (Transform child in parent)
+            {
+                Transform result = FindDeepChild(child, name);
+                if (result != null) return result;
+            }
+            return null;
+        }
     }
 
-    [HarmonyPatch(typeof(agency), "Start")]
+    [HarmonyPatch(typeof(agency), "Start", new Type[0])]
     internal static class AgencyStartPatch
     {
         private static void Postfix(agency __instance)
@@ -959,7 +1044,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(agency), nameof(agency.GetRoomSprite))]
+    [HarmonyPatch(typeof(agency), nameof(agency.GetRoomSprite), new Type[] { typeof(Scenes.type), typeof(agency._type) })]
     internal static class AgencyGetRoomSpritePatch
     {
         private static bool Prefix(agency __instance, Scenes.type SceneType, agency._type RoomType, ref Sprite __result)
@@ -974,7 +1059,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(agency), nameof(agency.roomSpace))]
+    [HarmonyPatch(typeof(agency), nameof(agency.roomSpace), new Type[] { typeof(agency._type) })]
     internal static class AgencyRoomSpacePatch
     {
         private static bool Prefix(agency._type type, ref int __result)
@@ -989,7 +1074,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(agency), nameof(agency.roomCost))]
+    [HarmonyPatch(typeof(agency), nameof(agency.roomCost), new Type[] { typeof(agency._type) })]
     internal static class AgencyRoomCostPatch
     {
         private static bool Prefix(agency._type type, ref int __result)
@@ -1004,7 +1089,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(agency), nameof(agency.CanBuild_IsUnique))]
+    [HarmonyPatch(typeof(agency), nameof(agency.CanBuild_IsUnique), new Type[] { typeof(agency._type) })]
     internal static class AgencyCanBuildIsUniquePatch
     {
         private static bool Prefix(agency __instance, agency._type type, ref bool __result)
@@ -1019,7 +1104,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(agency), nameof(agency.GetRoomTooltip))]
+    [HarmonyPatch(typeof(agency), nameof(agency.GetRoomTooltip), new Type[] { typeof(agency._type) })]
     internal static class AgencyGetRoomTooltipPatch
     {
         private static bool Prefix(agency __instance, agency._type type, ref string __result)
@@ -1034,7 +1119,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(BuildRoomButton), "SetTooltip")]
+    [HarmonyPatch(typeof(BuildRoomButton), "SetTooltip", new Type[0])]
     internal static class BuildRoomButtonSetTooltipPatch
     {
         private static void Postfix(BuildRoomButton __instance)
@@ -1048,7 +1133,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(BuildRoomButton), "OnEnable")]
+    [HarmonyPatch(typeof(BuildRoomButton), "OnEnable", new Type[0])]
     internal static class BuildRoomButtonOnEnablePatch
     {
         private static void Postfix(BuildRoomButton __instance)
@@ -1062,7 +1147,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(BuildRoomButton), "onClick")]
+    [HarmonyPatch(typeof(BuildRoomButton), "onClick", new Type[0])]
     internal static class BuildRoomButtonOnClickPatch
     {
         private static bool Prefix(BuildRoomButton __instance)
@@ -1081,7 +1166,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(Staff_Hire_Popup), "Start")]
+    [HarmonyPatch(typeof(Staff_Hire_Popup), "Start", new Type[0])]
     internal static class StaffHirePopupStartPatch
     {
         private static void Postfix(Staff_Hire_Popup __instance)
@@ -1090,7 +1175,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(Staff_Hire_Popup), nameof(Staff_Hire_Popup.Reset))]
+    [HarmonyPatch(typeof(Staff_Hire_Popup), nameof(Staff_Hire_Popup.Reset), new Type[0])]
     internal static class StaffHirePopupResetPatch
     {
         private static void Prefix(Staff_Hire_Popup __instance)
@@ -1113,7 +1198,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(Staff_Hire_Button), nameof(Staff_Hire_Button.Set))]
+    [HarmonyPatch(typeof(Staff_Hire_Button), nameof(Staff_Hire_Button.Set), new Type[] { typeof(staff._expertise) })]
     internal static class StaffHireButtonSetPatch
     {
         private static void Postfix(Staff_Hire_Button __instance)
@@ -1122,7 +1207,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(Staff_Hire_Button), nameof(Staff_Hire_Button.OnClick))]
+    [HarmonyPatch(typeof(Staff_Hire_Button), nameof(Staff_Hire_Button.OnClick), new Type[0])]
     internal static class StaffHireButtonOnClickPatch
     {
         private static bool Prefix(Staff_Hire_Button __instance)
@@ -1136,7 +1221,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(staff), "TypeToFolderName")]
+    [HarmonyPatch(typeof(staff), "TypeToFolderName", new Type[] { typeof(staff._type) })]
     internal static class StaffTypeToFolderNamePatch
     {
         private static bool Prefix(staff._type type, ref string __result)
@@ -1151,7 +1236,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(staff), nameof(staff.GetJobTitleString))]
+    [HarmonyPatch(typeof(staff), nameof(staff.GetJobTitleString), new Type[] { typeof(staff._type) })]
     internal static class StaffGetJobTitleStringPatch
     {
         private static bool Prefix(staff._type type, ref string __result)
@@ -1166,7 +1251,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(staff), nameof(staff.GetSkillsByType))]
+    [HarmonyPatch(typeof(staff), nameof(staff.GetSkillsByType), new Type[] { typeof(staff._type), typeof(staff._expertise), typeof(bool) })]
     internal static class StaffGetSkillsByTypePatch
     {
         private static bool Prefix(staff._type type, staff._expertise expertise, ref List<staff._staff._skill> __result)
@@ -1181,7 +1266,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(staff), nameof(staff.Generate))]
+    [HarmonyPatch(typeof(staff), nameof(staff.Generate), new Type[] { typeof(staff._type), typeof(staff._expertise), typeof(bool) })]
     internal static class StaffGeneratePatch
     {
         private static bool Prefix(staff __instance, staff._type type, staff._expertise expertise, ref staff._staff __result)
@@ -1196,7 +1281,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(staff._staff), nameof(staff._staff.Is_Male))]
+    [HarmonyPatch(typeof(staff._staff), nameof(staff._staff.Is_Male), new Type[0])]
     internal static class StaffMemberIsMalePatch
     {
         private static bool Prefix(staff._staff __instance, ref bool __result)
@@ -1211,7 +1296,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(staff._staff), nameof(staff._staff.GetRoomType))]
+    [HarmonyPatch(typeof(staff._staff), nameof(staff._staff.GetRoomType), new Type[0])]
     internal static class StaffMemberGetRoomTypePatch
     {
         private static bool Prefix(staff._staff __instance, ref agency._type? __result)
@@ -1226,7 +1311,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(staff._staff), nameof(staff._staff.GetIdleAnimationType))]
+    [HarmonyPatch(typeof(staff._staff), nameof(staff._staff.GetIdleAnimationType), new Type[0])]
     internal static class StaffMemberGetIdleAnimationTypePatch
     {
         private static bool Prefix(staff._staff __instance, ref Animations._animationType __result)
@@ -1241,7 +1326,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(staff._staff), nameof(staff._staff.GetLevelUpTooltip))]
+    [HarmonyPatch(typeof(staff._staff), nameof(staff._staff.GetLevelUpTooltip), new Type[0])]
     internal static class StaffMemberGetLevelUpTooltipPatch
     {
         private static bool Prefix(staff._staff __instance, ref string __result)
@@ -1274,7 +1359,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(staff._staff), nameof(staff._staff.GetTooltipText))]
+    [HarmonyPatch(typeof(staff._staff), nameof(staff._staff.GetTooltipText), new Type[0])]
     internal static class StaffMemberGetTooltipTextPatch
     {
         private static void Postfix(staff._staff __instance, ref string __result)
@@ -1289,7 +1374,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(Research), nameof(Research.GetCategoryTypeByStaff))]
+    [HarmonyPatch(typeof(Research), nameof(Research.GetCategoryTypeByStaff), new Type[] { typeof(staff._type) })]
     internal static class ResearchGetCategoryTypeByStaffPatch
     {
         private static bool Prefix(staff._type StaffType, ref Research.type __result)
@@ -1304,7 +1389,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(Research), nameof(Research.IsStaffInCategory))]
+    [HarmonyPatch(typeof(Research), nameof(Research.IsStaffInCategory), new Type[] { typeof(Research.type), typeof(staff._type) })]
     internal static class ResearchIsStaffInCategoryPatch
     {
         private static void Postfix(Research.type Type, staff._type StaffType, ref bool __result)
@@ -1316,7 +1401,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(ContextMenuController), "GetContextMenu")]
+    [HarmonyPatch(typeof(ContextMenuController), "GetContextMenu", new Type[] { typeof(agency._type) })]
     internal static class ContextMenuControllerGetContextMenuPatch
     {
         private static bool Prefix(ContextMenuController __instance, agency._type type, ref ContextMenuController._ContextMenu __result)
@@ -1326,29 +1411,45 @@ namespace AssitantManagerMod
                 return true;
             }
 
-            ContextMenuController._ContextMenu officeFallback = null;
+            ContextMenuController._ContextMenu yourOfficeMenu = null;
+            ContextMenuController._ContextMenu officeMenu = null;
+
             for (int i = 0; i < __instance.ContextMenu.Count; i++)
             {
                 ContextMenuController._ContextMenu contextMenu = __instance.ContextMenu[i];
-                if (contextMenu == null)
-                {
-                    continue;
-                }
+                if (contextMenu == null) continue;
 
-                if (contextMenu.type == agency._type.yourOffice)
-                {
-                    __result = contextMenu;
-                    return false;
-                }
-
-                if (contextMenu.type == agency._type.office)
-                {
-                    officeFallback = contextMenu;
-                }
+                if (contextMenu.type == agency._type.yourOffice) yourOfficeMenu = contextMenu;
+                if (contextMenu.type == agency._type.office) officeMenu = contextMenu;
             }
 
-            __result = officeFallback;
-            return false;
+            // Return the yourOffice menu, but inject the fire buttons if they aren't there yet.
+            if (yourOfficeMenu != null)
+            {
+                AssistantManagerRules.InjectFireButtons(yourOfficeMenu, officeMenu);
+                __result = yourOfficeMenu;
+                return false;
+            }
+
+            return true;
+        }
+    }
+
+    [HarmonyPatch(typeof(ContextMenuController), "Show", new Type[] { typeof(agency._room) })]
+    internal static class ContextMenuControllerShowPatch
+    {
+        private static void Postfix(ContextMenuController __instance, agency._room __0)
+        {
+            if (__instance == null || __0 == null) return;
+            
+            bool isAssistant = AssistantManagerRules.IsAssistantManagerOfficeRoomType(__0.type);
+            bool isManager = __0.type == agency._type.yourOffice;
+
+            if (isAssistant || isManager)
+            {
+                // This targets the yourOffice menu that we injected the fire buttons into and safely toggles them.
+                AssistantManagerRules.ToggleInjectedFireButtons(__instance, isAssistant);
+            }
         }
     }
 
@@ -1391,9 +1492,15 @@ namespace AssitantManagerMod
     {
         private static bool Prefix(agency._room __instance, data_girls.girls _girl)
         {
-            if (!AssistantManagerRules.IsAssistantManagerOffice(__instance)) return true;
+            if (!AssistantManagerRules.IsAssistantManagerOffice(__instance))
+            {
+                return true;
+            }
 
-            if (_girl == null || __instance.staffer == null) return false;
+            if (_girl == null || __instance.staffer == null)
+            {
+                return false;
+            }
 
             __instance.assign_date(_girl);
             AssistantManagerRules.PlayManagerOfficeDateVoice(_girl);
@@ -1401,7 +1508,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(agency._room), nameof(agency._room.GoOnDate))]
+    [HarmonyPatch(typeof(agency._room), nameof(agency._room.GoOnDate), new Type[0])]
     internal static class RoomGoOnDatePatch
     {
         private static bool Prefix(agency._room __instance)
@@ -1431,16 +1538,19 @@ namespace AssitantManagerMod
                 __instance.staffer.StopWorking(StatusButton._state.normal);
                 return false;
             }
-                return true;
-            }
+            return true;
+        }
     }
 
-    [HarmonyPatch(typeof(Room), nameof(Room.SetTitle_Date))]
+    [HarmonyPatch(typeof(Room), nameof(Room.SetTitle_Date), new Type[] { typeof(data_girls.girls) })]
     internal static class RoomSetTitleDatePatch
     {
         private static bool Prefix(Room __instance, data_girls.girls Girl)
         {
-            if (__instance == null || !AssistantManagerRules.IsAssistantManagerOffice(__instance.room)) return true;
+            if (__instance == null || !AssistantManagerRules.IsAssistantManagerOffice(__instance.room))
+            {
+                return true;
+            }
 
             int daysCooldown = AssistantManagerDateTracking.GetCooldownDays(__instance.room.id, Girl.id);
             string str;
@@ -1458,7 +1568,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(agency._room), "DrawSpriteGirl")]
+    [HarmonyPatch(typeof(agency._room), "DrawSpriteGirl", new Type[] { typeof(bool) })]
     internal static class RoomDrawSpriteGirlPatch
     {
         private static bool Prefix(agency._room __instance)
@@ -1467,7 +1577,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(agency._room), nameof(agency._room.singleParamType))]
+    [HarmonyPatch(typeof(agency._room), nameof(agency._room.singleParamType), new Type[] { typeof(singles._single) })]
     internal static class RoomSingleParamTypePatch
     {
         private static bool Prefix(agency._room __instance, singles._single _single, ref singles._single._param._type __result)
@@ -1482,7 +1592,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(agency._room), nameof(agency._room.showParamType))]
+    [HarmonyPatch(typeof(agency._room), nameof(agency._room.showParamType), new Type[] { typeof(Shows._show) })]
     internal static class RoomShowParamTypePatch
     {
         private static bool Prefix(agency._room __instance, Shows._show __0, ref Shows._show._progressable._type __result)
@@ -1497,7 +1607,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(agency._room), nameof(agency._room.SSKParamType))]
+    [HarmonyPatch(typeof(agency._room), nameof(agency._room.SSKParamType), new Type[] { typeof(SEvent_SSK._SSK) })]
     internal static class RoomSskParamTypePatch
     {
         private static bool Prefix(agency._room __instance, SEvent_SSK._SSK __0, ref SEvent_SSK._SSK._progressable._type __result)
@@ -1512,7 +1622,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(agency._room), nameof(agency._room.TourParamType))]
+    [HarmonyPatch(typeof(agency._room), nameof(agency._room.TourParamType), new Type[] { typeof(SEvent_Tour.tour) })]
     internal static class RoomTourParamTypePatch
     {
         private static bool Prefix(agency._room __instance, SEvent_Tour.tour __0, ref SEvent_Tour.tour._progressable._type __result)
@@ -1527,7 +1637,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(agency._room), nameof(agency._room.concertParamType))]
+    [HarmonyPatch(typeof(agency._room), nameof(agency._room.concertParamType), new Type[] { typeof(SEvent_Concerts._concert) })]
     internal static class RoomConcertParamTypePatch
     {
         private static bool Prefix(agency._room __instance, SEvent_Concerts._concert __0, ref SEvent_Concerts._concert._progressable._type __result)
@@ -1593,7 +1703,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(agency._room), "DoSingleProduction")]
+    [HarmonyPatch(typeof(agency._room), "DoSingleProduction", new Type[0])]
     internal static class RoomDoSingleProductionPatch
     {
         private static bool Prefix(agency._room __instance)
@@ -1633,7 +1743,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(agency._room), "DoShowProduction")]
+    [HarmonyPatch(typeof(agency._room), "DoShowProduction", new Type[0])]
     internal static class RoomDoShowProductionPatch
     {
         private static bool Prefix(agency._room __instance)
@@ -1679,7 +1789,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(agency._room), "DoSSKProduction")]
+    [HarmonyPatch(typeof(agency._room), "DoSSKProduction", new Type[0])]
     internal static class RoomDoSskProductionPatch
     {
         private static bool Prefix(agency._room __instance)
@@ -1717,7 +1827,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(agency._room), "DoTourProduction")]
+    [HarmonyPatch(typeof(agency._room), "DoTourProduction", new Type[0])]
     internal static class RoomDoTourProductionPatch
     {
         private static bool Prefix(agency._room __instance)
@@ -1755,7 +1865,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(agency._room), "DoConcertProduction")]
+    [HarmonyPatch(typeof(agency._room), "DoConcertProduction", new Type[0])]
     internal static class RoomDoConcertProductionPatch
     {
         private static bool Prefix(agency._room __instance)
@@ -1795,7 +1905,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(singles._single), nameof(singles._single.AssignableRoomType))]
+    [HarmonyPatch(typeof(singles._single), nameof(singles._single.AssignableRoomType), new Type[] { typeof(agency._type) })]
     internal static class SingleAssignableRoomTypePatch
     {
         private static void Postfix(agency._type roomType, ref bool __result)
@@ -1807,7 +1917,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(Shows._show), nameof(Shows._show.AssignableRoomType))]
+    [HarmonyPatch(typeof(Shows._show), nameof(Shows._show.AssignableRoomType), new Type[] { typeof(agency._type) })]
     internal static class ShowAssignableRoomTypePatch
     {
         private static void Postfix(agency._type roomType, ref bool __result)
@@ -1819,7 +1929,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(SEvent_SSK._SSK), nameof(SEvent_SSK._SSK.AssignableRoomType))]
+    [HarmonyPatch(typeof(SEvent_SSK._SSK), nameof(SEvent_SSK._SSK.AssignableRoomType), new Type[] { typeof(agency._type) })]
     internal static class SskAssignableRoomTypePatch
     {
         private static void Postfix(agency._type roomType, ref bool __result)
@@ -1831,7 +1941,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(SEvent_Tour.tour), nameof(SEvent_Tour.tour.AssignableRoomType))]
+    [HarmonyPatch(typeof(SEvent_Tour.tour), nameof(SEvent_Tour.tour.AssignableRoomType), new Type[] { typeof(agency._type) })]
     internal static class TourAssignableRoomTypePatch
     {
         private static void Postfix(agency._type roomType, ref bool __result)
@@ -1843,7 +1953,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(SEvent_Concerts._concert), nameof(SEvent_Concerts._concert.AssignableRoomType))]
+    [HarmonyPatch(typeof(SEvent_Concerts._concert), nameof(SEvent_Concerts._concert.AssignableRoomType), new Type[] { typeof(agency._type) })]
     internal static class ConcertAssignableRoomTypePatch
     {
         private static void Postfix(agency._type roomType, ref bool __result)
@@ -1855,7 +1965,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(Room), nameof(Room.SetTitle_Single))]
+    [HarmonyPatch(typeof(Room), nameof(Room.SetTitle_Single), new Type[] { typeof(bool), typeof(singles._single) })]
     internal static class RoomSetTitleSinglePatch
     {
         private static bool Prefix(Room __instance, bool __0, singles._single __1)
@@ -1882,7 +1992,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(Room), nameof(Room.SetTitle_Show))]
+    [HarmonyPatch(typeof(Room), nameof(Room.SetTitle_Show), new Type[] { typeof(bool), typeof(Shows._show) })]
     internal static class RoomSetTitleShowPatch
     {
         private static bool Prefix(Room __instance, bool __0, Shows._show __1)
@@ -1909,7 +2019,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(Room), nameof(Room.SetTitle_Tour))]
+    [HarmonyPatch(typeof(Room), nameof(Room.SetTitle_Tour), new Type[] { typeof(bool), typeof(SEvent_SSK._SSK), typeof(SEvent_Tour.tour) })]
     internal static class RoomSetTitleTourPatch
     {
         private static bool Prefix(Room __instance, bool __0, SEvent_SSK._SSK __1, SEvent_Tour.tour __2)
@@ -1954,7 +2064,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(Room), nameof(Room.SetTitle_Concert))]
+    [HarmonyPatch(typeof(Room), nameof(Room.SetTitle_Concert), new Type[] { typeof(bool), typeof(SEvent_Concerts._concert) })]
     internal static class RoomSetTitleConcertPatch
     {
         private static bool Prefix(Room __instance, bool __0, SEvent_Concerts._concert __1)
@@ -1981,7 +2091,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(loans), nameof(loans.AddLoan))]
+    [HarmonyPatch(typeof(loans), nameof(loans.AddLoan), new Type[] { typeof(loans._loan) })]
     internal static class LoansAddLoanPatch
     {
         private static bool Prefix(loans._loan __0)
@@ -2017,7 +2127,7 @@ namespace AssitantManagerMod
         }
     }
 
-    [HarmonyPatch(typeof(Loans_Popup), "Validate")]
+    [HarmonyPatch(typeof(Loans_Popup), "Validate", new Type[0])]
     internal static class LoansPopupValidatePatch
     {
         private static void Postfix(Loans_Popup __instance)
