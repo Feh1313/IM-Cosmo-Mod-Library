@@ -466,38 +466,45 @@ namespace AssitantManagerMod
         {
             if (popup == null || popup.Container == null) return;
 
-            Staff_Hire_Button[] buttons = popup.Container.GetComponentsInChildren<Staff_Hire_Button>(true);
+            Staff_Hire_Button[] allButtons = popup.Container.GetComponentsInChildren<Staff_Hire_Button>(true);
             Staff_Hire_Button cloneSource = null;
-            bool foundType1 = false;
-            bool foundType2 = false;
+            int lastVanillaRowIndex = -1;
 
-            for (int i = 0; i < buttons.Length; i++)
+            // Update existing or locate our target index and clone source
+            for (int i = 0; i < allButtons.Length; i++)
             {
-                if (buttons[i] == null) continue;
+                if (allButtons[i] == null) continue;
 
-                if (buttons[i].Type == AssistantManagerConstants.AssistantManagerStaffType)
+                bool isAssistant = (allButtons[i].Type == AssistantManagerConstants.AssistantManagerStaffType ||
+                                    allButtons[i].Type == AssistantManagerConstants.AssistantManagerStaffType2);
+
+                if (isAssistant)
                 {
-                    buttons[i].Set(popup.Expertise);
-                    ApplyAssistantManagerHireButtonPresentation(buttons[i]);
-                    foundType1 = true;
+                    allButtons[i].Set(popup.Expertise);
+                    ApplyAssistantManagerHireButtonPresentation(allButtons[i]);
                 }
-                else if (buttons[i].Type == AssistantManagerConstants.AssistantManagerStaffType2)
+                else
                 {
-                    buttons[i].Set(popup.Expertise);
-                    ApplyAssistantManagerHireButtonPresentation(buttons[i]);
-                    foundType2 = true;
-                }
-                else if (buttons[i].Type == staff._type.production_manager)
-                {
-                    cloneSource = buttons[i];
+                    // Map the UI hierarchy to find the very last vanilla staff row in the list
+                    Transform row = allButtons[i].transform;
+                    while (row.parent != null && row.parent != popup.Container.transform)
+                    {
+                        row = row.parent;
+                    }
+                    if (row.parent == popup.Container.transform)
+                    {
+                        lastVanillaRowIndex = Math.Max(lastVanillaRowIndex, row.GetSiblingIndex());
+                    }
+
+                    if (allButtons[i].Type == staff._type.production_manager)
+                    {
+                        cloneSource = allButtons[i];
+                    }
                 }
             }
 
-            if (foundType1 && foundType2) return;
             if (cloneSource == null) return;
 
-            // Target the direct child element of the popup container that holds our clone source 
-            // (this supports both Flat Hierarchy and Nested Grouped Hierarchy natively)
             Transform directChildOfContainer = cloneSource.transform;
             while (directChildOfContainer.parent != null && directChildOfContainer.parent != popup.Container.transform)
             {
@@ -505,69 +512,77 @@ namespace AssitantManagerMod
             }
 
             Transform headerToClone = null;
-            int siblingIndex = directChildOfContainer.GetSiblingIndex();
+            int cloneSourceSiblingIndex = directChildOfContainer.GetSiblingIndex();
             
-            // Check for standalone header above the button row (Typical flat UI hierarchy pattern)
-            if (siblingIndex > 0)
+            // Extract the header above the clone source
+            if (cloneSourceSiblingIndex > 0)
             {
-                Transform prevSibling = popup.Container.transform.GetChild(siblingIndex - 1);
-                // A header will NOT contain buttons, but WILL contain text
+                Transform prevSibling = popup.Container.transform.GetChild(cloneSourceSiblingIndex - 1);
                 if (prevSibling.GetComponentsInChildren<Staff_Hire_Button>(true).Length == 0)
                 {
                     headerToClone = prevSibling;
                 }
             }
 
-            // Clone the Standalone Header (If applicable)
-            if (headerToClone != null)
+            // Target the index immediately after the last vanilla staff row. 
+            // This safely bypasses any invisible padding objects at the end of the scroll view.
+            int targetSiblingIndex = lastVanillaRowIndex != -1 ? lastVanillaRowIndex + 1 : popup.Container.transform.childCount;
+
+            // Process Header
+            Transform existingHeader = popup.Container.transform.Find("AssistantManagerHeader");
+            GameObject newHeader = existingHeader != null ? existingHeader.gameObject : null;
+            
+            if (headerToClone != null && newHeader == null)
             {
-                Transform existingHeader = popup.Container.transform.Find("AssistantManagerHeader");
-                GameObject newHeader = existingHeader != null ? existingHeader.gameObject : null;
-                
-                if (newHeader == null)
-                {
-                    newHeader = UnityEngine.Object.Instantiate(headerToClone.gameObject, popup.Container.transform, false);
-                    newHeader.name = "AssistantManagerHeader";
-                    newHeader.transform.SetAsLastSibling();
-                }
+                newHeader = UnityEngine.Object.Instantiate(headerToClone.gameObject, popup.Container.transform, false);
+                newHeader.name = "AssistantManagerHeader";
+            }
+            
+            if (newHeader != null)
+            {
+                newHeader.transform.SetSiblingIndex(targetSiblingIndex);
+                targetSiblingIndex = newHeader.transform.GetSiblingIndex() + 1;
                 ApplyAssistantManagerHeaderPresentation(newHeader);
             }
 
-            // Clone the Button Row (or the Nested Category wrapper if the game uses grouped hierarchy)
+            // Process Buttons Row
             Transform existingRow = popup.Container.transform.Find("AssistantManagerRow");
             GameObject newRow = existingRow != null ? existingRow.gameObject : null;
-            
+            bool isNewRow = false;
+
             if (newRow == null)
             {
                 newRow = UnityEngine.Object.Instantiate(directChildOfContainer.gameObject, popup.Container.transform, false);
                 newRow.name = "AssistantManagerRow";
-                newRow.transform.SetAsLastSibling();
+                isNewRow = true;
             }
 
-            // Apply presentation to the row/wrapper as well, just in case the Text is embedded inside it!
-            ApplyAssistantManagerHeaderPresentation(newRow);
+            newRow.transform.SetSiblingIndex(targetSiblingIndex);
 
-            Staff_Hire_Button[] newButtons = newRow.GetComponentsInChildren<Staff_Hire_Button>(true);
-            
-            if (newButtons.Length >= 2)
+            if (isNewRow)
             {
-                Staff_Hire_Button hireButton1 = newButtons[0];
-                Staff_Hire_Button hireButton2 = newButtons[1];
+                Staff_Hire_Button[] newButtons = newRow.GetComponentsInChildren<Staff_Hire_Button>(true);
                 
-                for (int i = 2; i < newButtons.Length; i++)
+                if (newButtons.Length >= 2)
                 {
-                    UnityEngine.Object.Destroy(newButtons[i].gameObject);
+                    Staff_Hire_Button hireButton1 = newButtons[0];
+                    Staff_Hire_Button hireButton2 = newButtons[1];
+                    
+                    for (int i = 2; i < newButtons.Length; i++)
+                    {
+                        UnityEngine.Object.Destroy(newButtons[i].gameObject);
+                    }
+
+                    hireButton1.name = AssistantManagerConstants.AssistantManagerHireButtonObjectName + "_1";
+                    hireButton1.Type = AssistantManagerConstants.AssistantManagerStaffType;
+                    hireButton1.Set(popup.Expertise);
+                    ApplyAssistantManagerHireButtonPresentation(hireButton1);
+
+                    hireButton2.name = AssistantManagerConstants.AssistantManagerHireButtonObjectName + "_2";
+                    hireButton2.Type = AssistantManagerConstants.AssistantManagerStaffType2;
+                    hireButton2.Set(popup.Expertise);
+                    ApplyAssistantManagerHireButtonPresentation(hireButton2);
                 }
-
-                hireButton1.name = AssistantManagerConstants.AssistantManagerHireButtonObjectName + "_1";
-                hireButton1.Type = AssistantManagerConstants.AssistantManagerStaffType;
-                hireButton1.Set(popup.Expertise);
-                ApplyAssistantManagerHireButtonPresentation(hireButton1);
-
-                hireButton2.name = AssistantManagerConstants.AssistantManagerHireButtonObjectName + "_2";
-                hireButton2.Type = AssistantManagerConstants.AssistantManagerStaffType2;
-                hireButton2.Set(popup.Expertise);
-                ApplyAssistantManagerHireButtonPresentation(hireButton2);
             }
         }
 
@@ -591,7 +606,6 @@ namespace AssitantManagerMod
             TextMeshProUGUI[] tmpTexts = obj.GetComponentsInChildren<TextMeshProUGUI>(true);
             for (int i = 0; i < tmpTexts.Length; i++)
             {
-                // Ensure we are replacing the section header text, NOT the text inside the hire buttons
                 if (tmpTexts[i] != null && tmpTexts[i].GetComponentInParent<Staff_Hire_Button>() == null)
                 {
                     tmpTexts[i].text = AssistantManagerText.AssistantManagerOfficeTitle;
@@ -1305,18 +1319,16 @@ namespace AssitantManagerMod
                 AssistantManagerRules.SetStaffHireButtonAvailability(buttons[i]);
             }
 
-            // Explicity target the root row named "AssistantManagerRow" and "AssistantManagerHeader" 
-            // so we can forcefully assert our Text over any lingering vanilla translation calls
-            Transform amRow = __instance.Container.transform.Find("AssistantManagerRow");
-            if (amRow != null)
-            {
-                AssistantManagerRules.ApplyAssistantManagerHeaderPresentation(amRow.gameObject);
-            }
-
             Transform amHeader = __instance.Container.transform.Find("AssistantManagerHeader");
             if (amHeader != null)
             {
                 AssistantManagerRules.ApplyAssistantManagerHeaderPresentation(amHeader.gameObject);
+            }
+            
+            Transform amRow = __instance.Container.transform.Find("AssistantManagerRow");
+            if (amRow != null)
+            {
+                AssistantManagerRules.ApplyAssistantManagerHeaderPresentation(amRow.gameObject);
             }
         }
     }
